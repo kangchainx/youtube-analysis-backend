@@ -13,6 +13,22 @@ npm run dev
 
 By default the server listens on [http://localhost:5001](http://localhost:5001). Update `.env` based on `.env.example` if you need custom values.
 
+## Docker
+
+Build the production image from the repository root:
+
+```bash
+docker build -t youtube-analysis-backend .
+```
+
+Run the container (exposes port 5001 by default) and load environment variables from `.env`:
+
+```bash
+docker run --rm -p 5001:5001 --env-file .env youtube-analysis-backend
+```
+
+Override configuration by adjusting the port mapping (e.g. `-p 8080:5001`) or by appending `-e KEY=value` flags to supply alternate secrets and runtime values when needed.
+
 ### Environment variables
 
 Copy `.env.example` to `.env` and adjust the following keys as needed:
@@ -53,12 +69,59 @@ All routes are prefixed with `/api`.
 | GET    | `/videos/:id`            | Example detail endpoint                                              |
 | POST   | `/auth/google/init`      | Generate a Google OAuth authorization URL plus front-end metadata    |
 | POST   | `/auth/google/callback`  | Exchange Google authorization code, verify ID token, start a session |
+| POST   | `/auth/login/password`   | Authenticate with username/password and issue a session              |
 | POST   | `/auth/logout`           | Clear the active session, optionally revoke Google access            |
+| GET    | `/users/me`              | Return the authenticated user's profile                              |
+| PATCH  | `/users/me`              | Update name, email, avatar, or password for the authenticated user   |
 | POST   | `/export/videos?format=` | Export videos to CSV (`format=csv`) or Excel (`format=excel`)        |
 
 Replace the sample video routes with your domain specific logic as you integrate with YouTube data sources.
 
+### Password-based authentication
+
+- `POST /api/auth/login/password` expects `{"username": string, "password": string}` and responds with the same payload shape as the Google callback (`user`, `token`, `scope`, `expiresIn`). The username currently maps to the stored user email (case-insensitive). On success the session cookie is set using the same configuration as Google sign-in. Invalid credentials return HTTP 401 with a readable `message`.
+- `PATCH /api/users/me` now accepts optional `name`, `email`, `avatar`, `password`, and (when updating the password) `currentPassword`. Unsubmitted fields remain unchanged. Password updates require at least 8 characters and, if a password is already set, the correct `currentPassword`. Email changes enforce uniqueness (case-insensitive) and must match a basic email format. Clearing the avatar can be done by sending `"avatar": null`.
+
 > **Note:** Default database credentials in `.env.example` target a local PostgreSQL instance; update them to match your environment and ensure suitable security for production.
+
+### Database schema
+
+Create the `users` and `sessions` tables (or adjust them to include the columns below) before starting the server. Add the `avatar_url` and `password_hash` columns if you already have a deployed database so profile photos and local passwords can be persisted:
+
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+```
+
+Example full DDL for a fresh install:
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY,
+  google_id TEXT UNIQUE NOT NULL,
+  email TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  password_hash TEXT,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  id_token TEXT NOT NULL,
+  scope TEXT,
+  token_type TEXT,
+  expiry_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+```
 
 ## Project Structure
 

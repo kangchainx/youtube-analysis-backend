@@ -33,6 +33,7 @@ interface SessionWithUserRow {
   user_google_id: string;
   user_email: string;
   user_display_name: string | null;
+  user_avatar_url: string | null;
   user_created_at: Date;
   user_updated_at: Date;
 }
@@ -159,6 +160,7 @@ export class SessionService {
          u.google_id AS user_google_id,
          u.email AS user_email,
          u.display_name AS user_display_name,
+         u.avatar_url AS user_avatar_url,
          u.created_at AS user_created_at,
          u.updated_at AS user_updated_at
        FROM sessions s
@@ -203,6 +205,7 @@ function mapSessionWithUserRow(row: SessionWithUserRow): SessionRecord {
     googleId: row.user_google_id,
     email: row.user_email,
     displayName: row.user_display_name,
+    avatarUrl: row.user_avatar_url,
     createdAt: row.user_created_at.toISOString(),
     updatedAt: row.user_updated_at.toISOString(),
   };
