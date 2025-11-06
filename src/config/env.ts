@@ -9,6 +9,8 @@ export interface AppConfig {
   googleOAuth: GoogleOAuthConfig;
   session: SessionConfig;
   database: DatabaseConfig;
+  youtube: YouTubeConfig;
+  spotlight: SpotlightConfig;
 }
 
 export interface GoogleOAuthConfig {
@@ -16,6 +18,14 @@ export interface GoogleOAuthConfig {
   clientSecret: string;
   redirectUri: string;
   scopes: string[];
+}
+
+export interface YouTubeConfig {
+  apiKey: string;
+}
+
+export interface SpotlightConfig {
+  handles: string[];
 }
 
 export interface SessionConfig {
@@ -143,6 +153,29 @@ function loadDatabaseConfig(): DatabaseConfig {
   };
 }
 
+function loadYouTubeConfig(): YouTubeConfig {
+  return {
+    apiKey: requireEnv("YOUTUBE_API_KEY"),
+  };
+}
+
+function parseHandles(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((handle) => handle.trim())
+    .filter((handle) => handle.length > 0);
+}
+
+function loadSpotlightConfig(): SpotlightConfig {
+  return {
+    handles: parseHandles(process.env.SPOTLIGHT_CHANNEL_HANDLES),
+  };
+}
+
 export function loadConfig(): AppConfig {
   const port = parsePort(process.env.PORT, 5001);
 
@@ -152,6 +185,8 @@ export function loadConfig(): AppConfig {
     googleOAuth: loadGoogleConfig(),
     session: loadSessionConfig(),
     database: loadDatabaseConfig(),
+    youtube: loadYouTubeConfig(),
+    spotlight: loadSpotlightConfig(),
   };
 
   if (process.env.CLIENT_ORIGIN) {

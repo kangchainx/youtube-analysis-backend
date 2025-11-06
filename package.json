@@ -7,7 +7,9 @@
     "dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "echo \"No tests configured\""
+    "test": "echo \"No tests configured\"",
+    "sync:spotlight": "ts-node-dev --transpile-only src/workers/syncSpotlightChannels.ts",
+    "sync:spotlight:prod": "node dist/workers/syncSpotlightChannels.js"
   },
   "keywords": [
     "node",
@@ -29,7 +31,8 @@
     "express": "^5.1.0",
     "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "undici": "^5.29.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
