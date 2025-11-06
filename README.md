@@ -21,10 +21,10 @@ Build the production image from the repository root:
 docker build -t youtube-analysis-backend .
 ```
 
-Run the container (exposes port 5001 by default) and load environment variables from `.env`:
+Run the container in the background (exposes port 5001 by default) and load environment variables from `.env`:
 
 ```bash
-docker run --rm -p 5001:5001 --env-file .env youtube-analysis-backend
+docker run -d --name youtube-analysis-backend -p 5001:5001 --env-file .env youtube-analysis-backend
 ```
 
 Override configuration by adjusting the port mapping (e.g. `-p 8080:5001`) or by appending `-e KEY=value` flags to supply alternate secrets and runtime values when needed.
