@@ -4,6 +4,10 @@ Node.js REST API service designed to pair with a React, TypeScript, and Vite fro
 
 The backend provides Google OAuth 2.0 single sign-on, persists user and session data in PostgreSQL, and exposes a video export service that produces CSV or Excel files for download.
 
+如果你喜欢这个项目或者它对你有帮助，请点亮一个 star，每一个 star 对我意义非凡。
+
+If you enjoy this project or find it helpful, please consider giving it a star; each one means a great deal to me.
+
 ## Getting Started
 
 ```bash
