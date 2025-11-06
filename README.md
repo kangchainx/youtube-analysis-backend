@@ -96,6 +96,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 Example full DDL for a fresh install:
 
 ```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY,
   google_id TEXT UNIQUE NOT NULL,
@@ -121,6 +123,26 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+
+CREATE TABLE IF NOT EXISTS spotlight_channels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  handle TEXT UNIQUE NOT NULL,
+  channel_id TEXT,
+  title TEXT NOT NULL,
+  description TEXT,
+  avatar_url TEXT,
+  total_views NUMERIC,
+  total_subscribers NUMERIC,
+  order_index INTEGER,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_spotlight_channels_active_order
+  ON spotlight_channels (order_index, updated_at DESC)
+  WHERE is_active = TRUE;
 ```
 
 ## Project Structure
