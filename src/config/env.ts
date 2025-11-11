@@ -11,6 +11,8 @@ export interface AppConfig {
   database: DatabaseConfig;
   youtube: YouTubeConfig;
   spotlight: SpotlightConfig;
+  videoTranscription: VideoTranscriptionConfig;
+  objectStorage: ObjectStorageConfig;
 }
 
 export interface GoogleOAuthConfig {
@@ -26,6 +28,22 @@ export interface YouTubeConfig {
 
 export interface SpotlightConfig {
   handles: string[];
+}
+
+export interface VideoTranscriptionConfig {
+  baseUrl: string;
+  streamTimeoutMs: number;
+}
+
+export interface ObjectStorageConfig {
+  endPoint: string;
+  port: number;
+  useSSL: boolean;
+  accessKey: string;
+  secretKey: string;
+  bucket: string;
+  region?: string;
+  presignedUrlExpirySeconds: number;
 }
 
 export interface SessionConfig {
@@ -53,6 +71,23 @@ function parsePort(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
     throw new Error("Environment variable PORT must be a positive integer");
+  }
+
+  return parsed;
+}
+
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  envName: string,
+): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    throw new Error(`Environment variable ${envName} must be a positive integer`);
   }
 
   return parsed;
@@ -176,6 +211,40 @@ function loadSpotlightConfig(): SpotlightConfig {
   };
 }
 
+function loadVideoTranscriptionConfig(): VideoTranscriptionConfig {
+  return {
+    baseUrl: requireEnv("VIDEO_TS_SERVICE_BASE_URL"),
+    streamTimeoutMs: parsePositiveInteger(
+      process.env.VIDEO_TS_STREAM_TIMEOUT_MS,
+      15 * 60 * 1000,
+      "VIDEO_TS_STREAM_TIMEOUT_MS",
+    ),
+  };
+}
+
+function loadObjectStorageConfig(): ObjectStorageConfig {
+  const baseConfig: ObjectStorageConfig = {
+    endPoint: requireEnv("MINIO_ENDPOINT"),
+    port: parsePort(process.env.MINIO_PORT, 9000),
+    useSSL: parseBooleanEnv(process.env.MINIO_USE_SSL, false),
+    accessKey: requireEnv("MINIO_ACCESS_KEY"),
+    secretKey: requireEnv("MINIO_SECRET_KEY"),
+    bucket: requireEnv("MINIO_BUCKET"),
+    presignedUrlExpirySeconds: parsePositiveInteger(
+      process.env.MINIO_PRESIGN_EXPIRY_SECONDS,
+      60 * 60,
+      "MINIO_PRESIGN_EXPIRY_SECONDS",
+    ),
+  };
+
+  const region = process.env.MINIO_REGION;
+  if (region) {
+    return { ...baseConfig, region };
+  }
+
+  return baseConfig;
+}
+
 export function loadConfig(): AppConfig {
   const port = parsePort(process.env.PORT, 5001);
 
@@ -187,6 +256,8 @@ export function loadConfig(): AppConfig {
     database: loadDatabaseConfig(),
     youtube: loadYouTubeConfig(),
     spotlight: loadSpotlightConfig(),
+    videoTranscription: loadVideoTranscriptionConfig(),
+    objectStorage: loadObjectStorageConfig(),
   };
 
   if (process.env.CLIENT_ORIGIN) {
