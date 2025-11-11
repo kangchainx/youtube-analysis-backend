@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/authentication";
-import { videoTranscriptionService } from "../services";
+import { objectStorageService, videoTranscriptionService } from "../services";
 import { AppError } from "../utils/appError";
 
 export const videoTranscriptionRouter = Router();
@@ -250,6 +250,54 @@ videoTranscriptionRouter.get("/details", async (req, res, next) => {
     );
 
     res.json({ data: details });
+  } catch (error) {
+    next(error);
+  }
+});
+
+videoTranscriptionRouter.get("/download-url", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("用户未登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const taskId = extractQueryString(
+      req.query.task_id ?? req.query.taskId,
+      "task_id",
+    );
+    const fileName = extractQueryString(
+      req.query.file_name ?? req.query.fileName,
+      "file_name",
+    );
+
+    if (fileName.includes("..")) {
+      throw new AppError("file_name 非法", {
+        statusCode: 400,
+        code: "INVALID_FILE_NAME",
+      });
+    }
+
+    const task = await videoTranscriptionService.getTaskByTaskId(
+      taskId,
+      currentUser.id,
+    );
+    if (!task) {
+      throw new AppError("未找到对应任务", {
+        statusCode: 404,
+        code: "TASK_NOT_FOUND",
+      });
+    }
+
+    const objectKey = `videos/exports/${taskId}/${fileName}`;
+    const url = await objectStorageService.getPresignedDownloadUrl(objectKey, {
+      responseContentDisposition: `attachment; filename="${encodeURIComponent(fileName)}"`,
+    });
+
+    res.json({ data: { url } });
   } catch (error) {
     next(error);
   }
