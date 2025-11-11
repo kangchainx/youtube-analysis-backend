@@ -41,6 +41,81 @@ videoTranscriptionRouter.post("/", async (req, res, next) => {
   }
 });
 
+videoTranscriptionRouter.get("/tasks", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("用户未登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const page = extractPositiveInteger(req.query.page, 1, "page");
+    const pageSizeInput =
+      req.query.page_size ?? req.query.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageSize = Math.min(
+      extractPositiveInteger(pageSizeInput, DEFAULT_PAGE_SIZE, "page_size"),
+      MAX_PAGE_SIZE,
+    );
+
+    const result = await videoTranscriptionService.listTasks(currentUser.id, {
+      page,
+      pageSize,
+    });
+
+    res.json({
+      data: result.tasks,
+      meta: {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+videoTranscriptionRouter.get("/tasks/details", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("用户未登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const page = extractPositiveInteger(req.query.page, 1, "page");
+    const pageSizeInput =
+      req.query.page_size ?? req.query.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageSize = Math.min(
+      extractPositiveInteger(pageSizeInput, DEFAULT_PAGE_SIZE, "page_size"),
+      MAX_PAGE_SIZE,
+    );
+
+    const result =
+      await videoTranscriptionService.listTasksWithDetails(currentUser.id, {
+        page,
+        pageSize,
+      });
+
+    res.json({
+      data: result.tasks,
+      meta: {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 videoTranscriptionRouter.get("/task", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -69,6 +144,86 @@ videoTranscriptionRouter.get("/task", async (req, res, next) => {
     }
 
     res.json({ data: task });
+  } catch (error) {
+    next(error);
+  }
+});
+
+videoTranscriptionRouter.get("/task/stream", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("用户未登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const taskId = extractQueryString(
+      req.query.task_id ?? req.query.taskId,
+      "task_id",
+    );
+
+    const task = await videoTranscriptionService.getTaskByTaskId(
+      taskId,
+      currentUser.id,
+    );
+
+    if (!task) {
+      throw new AppError("未找到对应任务", {
+        statusCode: 404,
+        code: "TASK_NOT_FOUND",
+      });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+
+    const writeEvent = (eventName: string, payload: unknown) => {
+      res.write(`event: ${eventName}\n`);
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    res.write("retry: 5000\n\n");
+    writeEvent("snapshot", task);
+
+    let closed = false;
+    let unsubscribe: (() => void) | undefined;
+    const heartbeat = setInterval(() => {
+      res.write(`event: ping\ndata: "${new Date().toISOString()}"\n\n`);
+    }, 25000);
+
+    const cleanup = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      clearInterval(heartbeat);
+      if (unsubscribe) {
+        unsubscribe();
+      }
+      res.end();
+    };
+
+    unsubscribe = videoTranscriptionService.onTaskUpdate((update) => {
+      if (
+        update.userId !== currentUser.id ||
+        update.taskId !== taskId
+      ) {
+        return;
+      }
+
+      writeEvent("update", update);
+      if (update.status !== "processing") {
+        cleanup();
+      }
+    });
+
+    req.on("close", cleanup);
   } catch (error) {
     next(error);
   }
@@ -178,6 +333,9 @@ function parseRequestPayload(body: unknown): RequestPayload {
   };
 }
 
+const DEFAULT_PAGE_SIZE = 20;
+const MAX_PAGE_SIZE = 50;
+
 function parseBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") {
     return value;
@@ -213,4 +371,32 @@ function extractQueryString(value: unknown, field: string): string {
     code: "INVALID_QUERY_PARAM",
     details: { field },
   });
+}
+
+function extractPositiveInteger(
+  value: unknown,
+  fallback: number,
+  field: string,
+): number {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const source = Array.isArray(value) ? value[0] : value;
+  const numeric =
+    typeof source === "number"
+      ? source
+      : typeof source === "string"
+      ? Number.parseInt(source, 10)
+      : NaN;
+
+  if (!Number.isFinite(numeric) || numeric < 1) {
+    throw new AppError(`${field} 必须是正整数`, {
+      statusCode: 400,
+      code: "INVALID_QUERY_PARAM",
+      details: { field },
+    });
+  }
+
+  return Math.floor(numeric);
 }

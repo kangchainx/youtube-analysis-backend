@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { FormData, fetch as undiciFetch } from "undici";
@@ -70,6 +71,37 @@ export interface VideoTranscriptionFileRecord {
   updatedAt: string;
 }
 
+export interface PaginatedVideoTranscriptionTasks {
+  tasks: VideoTranscriptionTaskRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface VideoTranscriptionTaskWithDetails
+  extends VideoTranscriptionTaskRecord {
+  details: VideoTranscriptionFileRecord[];
+}
+
+export interface PaginatedVideoTranscriptionTasksWithDetails {
+  tasks: VideoTranscriptionTaskWithDetails[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface VideoTranscriptionTaskUpdate {
+  taskRecordId: string;
+  taskId: string;
+  userId: string;
+  status: "processing" | "completed" | "failed";
+  progress: number | null;
+  errorMessage: string | null;
+  updatedAt: string;
+}
+
 interface VideoTranscriptionTaskRow {
   id: string;
   task_id: string;
@@ -102,14 +134,42 @@ interface MonitorTaskParams {
   userId: string;
 }
 
+interface JoinedTaskDetailRow {
+  t_id: string;
+  t_task_id: string;
+  t_video_source: string | null;
+  t_video_source_url: string | null;
+  t_user_id: string;
+  t_status: string;
+  t_progress: string | number | null;
+  t_error_message: string | null;
+  t_created_at: Date;
+  t_updated_at: Date;
+  d_id: string | null;
+  d_vtt_id: string | null;
+  d_user_id: string | null;
+  d_file_name: string | null;
+  d_file_path: string | null;
+  d_file_size: string | number | null;
+  d_file_format: string | null;
+  d_detected_language: string | null;
+  d_created_at: Date | null;
+  d_updated_at: Date | null;
+}
+
 const VIDEO_SOURCE_DIRECT_URL = "youtube";
 const httpFetch = undiciFetch as typeof globalThis.fetch;
+const TASK_UPDATE_EVENT = "task-update";
 
 export class VideoTranscriptionService {
+  private readonly taskEventEmitter = new EventEmitter();
+
   constructor(
     private readonly pool: Pool,
     private readonly config: VideoTranscriptionConfig,
-  ) {}
+  ) {
+    this.taskEventEmitter.setMaxListeners(0);
+  }
 
   async startTranscriptionTask(
     params: StartVideoTranscriptionParams,
@@ -181,17 +241,174 @@ export class VideoTranscriptionService {
       return null;
     }
 
+    return this.mapTaskRow(row);
+  }
+
+  async listTasks(
+    userId: string,
+    options: { page: number; pageSize: number },
+  ): Promise<PaginatedVideoTranscriptionTasks> {
+    const page = Math.max(1, options.page);
+    const pageSize = Math.max(1, options.pageSize);
+    const offset = (page - 1) * pageSize;
+
+    const [listResult, countResult] = await Promise.all([
+      this.pool.query<VideoTranscriptionTaskRow>(
+        `SELECT id,
+                task_id,
+                video_source,
+                video_source_url,
+                user_id,
+                status,
+                progress,
+                error_message,
+                created_at,
+                updated_at
+           FROM video_ts_task
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2
+          OFFSET $3`,
+        [userId, pageSize, offset],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*) AS count
+           FROM video_ts_task
+          WHERE user_id = $1`,
+        [userId],
+      ),
+    ]);
+
+    const total = Number.parseInt(countResult.rows[0]?.count ?? "0", 10) || 0;
+    const totalPages =
+      total === 0 ? 0 : Math.ceil(total / pageSize);
+
     return {
-      id: row.id,
-      taskId: row.task_id,
-      videoSource: row.video_source,
-      videoSourceUrl: row.video_source_url,
-      userId: row.user_id,
-      status: row.status,
-      progress: parseNumeric(row.progress),
-      errorMessage: row.error_message,
-      createdAt: row.created_at.toISOString(),
-      updatedAt: row.updated_at.toISOString(),
+      tasks: listResult.rows.map((row) => this.mapTaskRow(row)),
+      page,
+      pageSize,
+      total,
+      totalPages,
+    };
+  }
+
+  async listTasksWithDetails(
+    userId: string,
+    options: { page: number; pageSize: number },
+  ): Promise<PaginatedVideoTranscriptionTasksWithDetails> {
+    const page = Math.max(1, options.page);
+    const pageSize = Math.max(1, options.pageSize);
+    const offset = (page - 1) * pageSize;
+
+    const [joinedResult, countResult] = await Promise.all([
+      this.pool.query<JoinedTaskDetailRow>(
+        `
+        WITH paged_tasks AS (
+          SELECT id,
+                 task_id,
+                 video_source,
+                 video_source_url,
+                 user_id,
+                 status,
+                 progress,
+                 error_message,
+                 created_at,
+                 updated_at
+            FROM video_ts_task
+           WHERE user_id = $1
+           ORDER BY created_at DESC
+           LIMIT $2
+           OFFSET $3
+        )
+        SELECT
+          t.id AS t_id,
+          t.task_id AS t_task_id,
+          t.video_source AS t_video_source,
+          t.video_source_url AS t_video_source_url,
+          t.user_id AS t_user_id,
+          t.status AS t_status,
+          t.progress AS t_progress,
+          t.error_message AS t_error_message,
+          t.created_at AS t_created_at,
+          t.updated_at AS t_updated_at,
+          d.id AS d_id,
+          d.vtt_id AS d_vtt_id,
+          d.user_id AS d_user_id,
+          d.file_name AS d_file_name,
+          d.file_path AS d_file_path,
+          d.file_size AS d_file_size,
+          d.file_format AS d_file_format,
+          d.detected_language AS d_detected_language,
+          d.created_at AS d_created_at,
+          d.updated_at AS d_updated_at
+        FROM paged_tasks t
+        LEFT JOIN video_ts_detail d
+          ON d.vtt_id = t.id
+        ORDER BY t.created_at DESC, d.created_at ASC NULLS LAST, d.id ASC NULLS LAST
+        `,
+        [userId, pageSize, offset],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*) AS count
+           FROM video_ts_task
+          WHERE user_id = $1`,
+        [userId],
+      ),
+    ]);
+
+    const taskMap = new Map<string, VideoTranscriptionTaskWithDetails>();
+    for (const row of joinedResult.rows) {
+      let task = taskMap.get(row.t_id);
+      if (!task) {
+        task = {
+          id: row.t_id,
+          taskId: row.t_task_id,
+          videoSource: row.t_video_source,
+          videoSourceUrl: row.t_video_source_url,
+          userId: row.t_user_id,
+          status: row.t_status,
+          progress: parseNumeric(
+            typeof row.t_progress === "number"
+              ? row.t_progress
+              : row.t_progress ?? null,
+          ),
+          errorMessage: row.t_error_message,
+          createdAt: row.t_created_at.toISOString(),
+          updatedAt: row.t_updated_at.toISOString(),
+          details: [],
+        };
+        taskMap.set(row.t_id, task);
+      }
+
+      if (row.d_id) {
+        task.details.push({
+          id: row.d_id,
+          vttId: row.d_vtt_id ?? row.t_id,
+          userId: row.d_user_id ?? row.t_user_id,
+          fileName: row.d_file_name ?? "",
+          filePath: row.d_file_path ?? "",
+          fileSize: parseNumeric(row.d_file_size),
+          fileFormat: row.d_file_format,
+          detectedLanguage: row.d_detected_language,
+          createdAt: row.d_created_at
+            ? row.d_created_at.toISOString()
+            : row.t_created_at.toISOString(),
+          updatedAt: row.d_updated_at
+            ? row.d_updated_at.toISOString()
+            : row.t_updated_at.toISOString(),
+        });
+      }
+    }
+
+    const total = Number.parseInt(countResult.rows[0]?.count ?? "0", 10) || 0;
+    const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
+
+    return {
+      tasks: Array.from(taskMap.values()),
+      page,
+      pageSize,
+      total,
+      totalPages,
     };
   }
 
@@ -446,8 +663,42 @@ export class VideoTranscriptionService {
   ): Promise<void> {
     const normalizedStatus = this.mapRemoteStatus(event.status);
     const progressValue = this.normalizeProgress(event.progress);
-    const isFailure = normalizedStatus === "failed";
+    let nextStatus: "processing" | "completed" | "failed" = normalizedStatus;
+    let errorMessage =
+      normalizedStatus === "failed"
+        ? event.error ?? event.message ?? null
+        : null;
 
+    if (normalizedStatus === "completed") {
+      const files =
+        event.files && event.files.length > 0
+          ? event.files
+          : await this.fetchTaskFiles(params.taskId);
+
+      if (!files || files.length === 0) {
+        console.error(
+          `[video-ts] Task ${params.taskId} completed but no files were returned`,
+        );
+        nextStatus = "failed";
+        errorMessage =
+          event.message ?? "任务完成但未获取到任何可用的转写文件";
+      } else {
+        try {
+          await this.persistFiles(params.taskRecordId, params.userId, files);
+        } catch (error) {
+          const persistErrorMessage =
+            error instanceof Error ? error.message : String(error);
+          console.error(
+            `[video-ts] Failed to persist files for task ${params.taskId}`,
+            error,
+          );
+          nextStatus = "failed";
+          errorMessage = `转写结果写入数据库失败: ${persistErrorMessage}`;
+        }
+      }
+    }
+
+    const updatedAt = new Date();
     await this.pool.query(
       `UPDATE video_ts_task
        SET status = $2,
@@ -457,33 +708,26 @@ export class VideoTranscriptionService {
        WHERE id = $1`,
       [
         params.taskRecordId,
-        normalizedStatus,
+        nextStatus,
         progressValue,
-        isFailure ? event.error ?? event.message ?? null : null,
-        new Date(),
+        errorMessage,
+        updatedAt,
       ],
     );
 
-    if (normalizedStatus === "completed") {
-      const files =
-        event.files && event.files.length > 0
-          ? event.files
-          : await this.fetchTaskFiles(params.taskId);
-      if (files && files.length > 0) {
-        try {
-          await this.persistFiles(params.taskRecordId, params.userId, files);
-        } catch (error) {
-          console.error(
-            `[video-ts] Failed to persist files for task ${params.taskId}`,
-            error,
-          );
-        }
-      }
-    }
+    this.emitTaskUpdate({
+      taskRecordId: params.taskRecordId,
+      taskId: params.taskId,
+      userId: params.userId,
+      status: nextStatus,
+      progress: progressValue,
+      errorMessage,
+      updatedAt: updatedAt.toISOString(),
+    });
 
-    if (isFailure) {
+    if (nextStatus === "failed") {
       console.warn(
-        `[video-ts] Task ${params.taskId} failed: ${event.error ?? event.message}`,
+        `[video-ts] Task ${params.taskId} failed: ${errorMessage ?? event.error ?? event.message}`,
       );
     }
   }
@@ -667,6 +911,36 @@ export class VideoTranscriptionService {
     }
 
     return url.toString();
+  }
+
+  onTaskUpdate(
+    listener: (event: VideoTranscriptionTaskUpdate) => void,
+  ): () => void {
+    this.taskEventEmitter.on(TASK_UPDATE_EVENT, listener);
+    return () => {
+      this.taskEventEmitter.off(TASK_UPDATE_EVENT, listener);
+    };
+  }
+
+  private emitTaskUpdate(event: VideoTranscriptionTaskUpdate): void {
+    this.taskEventEmitter.emit(TASK_UPDATE_EVENT, event);
+  }
+
+  private mapTaskRow(
+    row: VideoTranscriptionTaskRow,
+  ): VideoTranscriptionTaskRecord {
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      videoSource: row.video_source,
+      videoSourceUrl: row.video_source_url,
+      userId: row.user_id,
+      status: row.status,
+      progress: parseNumeric(row.progress),
+      errorMessage: row.error_message,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    };
   }
 }
 
