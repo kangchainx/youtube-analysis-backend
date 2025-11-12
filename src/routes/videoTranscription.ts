@@ -59,10 +59,17 @@ videoTranscriptionRouter.get("/tasks", async (req, res, next) => {
       MAX_PAGE_SIZE,
     );
 
-    const result = await videoTranscriptionService.listTasks(currentUser.id, {
-      page,
-      pageSize,
-    });
+    const rawStatus =
+      req.query.status ?? req.query.task_status ?? req.query.taskStatus;
+    const status = extractOptionalString(rawStatus, "status");
+    const listOptions = status
+      ? { page, pageSize, status }
+      : { page, pageSize };
+
+    const result = await videoTranscriptionService.listTasks(
+      currentUser.id,
+      listOptions,
+    );
 
     res.json({
       data: result.tasks,
@@ -96,11 +103,17 @@ videoTranscriptionRouter.get("/tasks/details", async (req, res, next) => {
       MAX_PAGE_SIZE,
     );
 
-    const result =
-      await videoTranscriptionService.listTasksWithDetails(currentUser.id, {
-        page,
-        pageSize,
-      });
+    const rawStatus =
+      req.query.status ?? req.query.task_status ?? req.query.taskStatus;
+    const status = extractOptionalString(rawStatus, "status");
+    const listOptions = status
+      ? { page, pageSize, status }
+      : { page, pageSize };
+
+    const result = await videoTranscriptionService.listTasksWithDetails(
+      currentUser.id,
+      listOptions,
+    );
 
     res.json({
       data: result.tasks,
@@ -130,10 +143,14 @@ videoTranscriptionRouter.get("/task", async (req, res, next) => {
       req.query.task_id ?? req.query.taskId,
       "task_id",
     );
+    const rawStatus =
+      req.query.status ?? req.query.task_status ?? req.query.taskStatus;
+    const status = extractOptionalString(rawStatus, "status");
 
     const task = await videoTranscriptionService.getTaskByTaskId(
       taskId,
       currentUser.id,
+      status,
     );
 
     if (!task) {
@@ -163,10 +180,14 @@ videoTranscriptionRouter.get("/task/stream", async (req, res, next) => {
       req.query.task_id ?? req.query.taskId,
       "task_id",
     );
+    const rawStatus =
+      req.query.status ?? req.query.task_status ?? req.query.taskStatus;
+    const status = extractOptionalString(rawStatus, "status");
 
     const task = await videoTranscriptionService.getTaskByTaskId(
       taskId,
       currentUser.id,
+      status,
     );
 
     if (!task) {
@@ -419,6 +440,17 @@ function extractQueryString(value: unknown, field: string): string {
     code: "INVALID_QUERY_PARAM",
     details: { field },
   });
+}
+
+function extractOptionalString(
+  value: unknown,
+  field: string,
+): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return extractQueryString(value, field);
 }
 
 function extractPositiveInteger(

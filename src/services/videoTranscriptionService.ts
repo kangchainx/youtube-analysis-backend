@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { FormData, fetch as undiciFetch } from "undici";
 import type { VideoTranscriptionConfig } from "../config/env";
 import { AppError } from "../utils/appError";
+import type { NotificationService } from "./notificationService";
 
 type RemoteTaskStatus = "pending" | "processing" | "completed" | "error" | string;
 
@@ -53,6 +54,7 @@ export interface VideoTranscriptionTaskRecord {
   userId: string;
   status: string;
   progress: number | null;
+  progressMessage: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -98,6 +100,7 @@ export interface VideoTranscriptionTaskUpdate {
   userId: string;
   status: "processing" | "completed" | "failed";
   progress: number | null;
+  progressMessage: string | null;
   errorMessage: string | null;
   updatedAt: string;
 }
@@ -110,6 +113,7 @@ interface VideoTranscriptionTaskRow {
   user_id: string;
   status: string;
   progress: string | null;
+  progress_message: string | null;
   error_message: string | null;
   created_at: Date;
   updated_at: Date;
@@ -132,6 +136,7 @@ interface MonitorTaskParams {
   taskRecordId: string;
   taskId: string;
   userId: string;
+  videoSourceUrl?: string | null;
 }
 
 interface JoinedTaskDetailRow {
@@ -142,6 +147,7 @@ interface JoinedTaskDetailRow {
   t_user_id: string;
   t_status: string;
   t_progress: string | number | null;
+  t_progress_message: string | null;
   t_error_message: string | null;
   t_created_at: Date;
   t_updated_at: Date;
@@ -167,6 +173,7 @@ export class VideoTranscriptionService {
   constructor(
     private readonly pool: Pool,
     private readonly config: VideoTranscriptionConfig,
+    private readonly notificationService?: NotificationService,
   ) {
     this.taskEventEmitter.setMaxListeners(0);
   }
@@ -187,16 +194,18 @@ export class VideoTranscriptionService {
          user_id,
          status,
          progress,
+         progress_message,
          error_message,
          created_at,
          updated_at
-       ) VALUES ($1, $2, $3, $4, $5, 'processing', 0, NULL, $6, $6)`,
+       ) VALUES ($1, $2, $3, $4, $5, 'processing', 0, $6, NULL, $7, $7)`,
       [
         taskRecordId,
         remote.taskId,
         VIDEO_SOURCE_DIRECT_URL,
         params.url,
         params.userId,
+        remote.message ?? null,
         now,
       ],
     );
@@ -205,6 +214,7 @@ export class VideoTranscriptionService {
       taskId: remote.taskId,
       taskRecordId,
       userId: params.userId,
+      videoSourceUrl: params.url,
     });
 
     return {
@@ -218,7 +228,15 @@ export class VideoTranscriptionService {
   async getTaskByTaskId(
     taskId: string,
     userId: string,
+    status?: string,
   ): Promise<VideoTranscriptionTaskRecord | null> {
+    const whereClauses = ["task_id = $1", "user_id = $2"];
+    const params: string[] = [taskId, userId];
+    if (status) {
+      params.push(status);
+      whereClauses.push(`status = $${params.length}`);
+    }
+
     const { rows } = await this.pool.query<VideoTranscriptionTaskRow>(
       `SELECT id,
               task_id,
@@ -227,13 +245,13 @@ export class VideoTranscriptionService {
               user_id,
               status,
               progress,
+              progress_message,
               error_message,
               created_at,
               updated_at
          FROM video_ts_task
-        WHERE task_id = $1
-          AND user_id = $2`,
-      [taskId, userId],
+        WHERE ${whereClauses.join(" AND ")}`,
+      params,
     );
 
     const row = rows[0];
@@ -246,36 +264,54 @@ export class VideoTranscriptionService {
 
   async listTasks(
     userId: string,
-    options: { page: number; pageSize: number },
+    options: { page: number; pageSize: number; status?: string },
   ): Promise<PaginatedVideoTranscriptionTasks> {
     const page = Math.max(1, options.page);
     const pageSize = Math.max(1, options.pageSize);
     const offset = (page - 1) * pageSize;
+    const whereClauses = ["user_id = $1"];
+    const whereParams: string[] = [userId];
+    if (options.status) {
+      whereParams.push(options.status);
+      whereClauses.push(`status = $${whereParams.length}`);
+    }
+
+    const whereSql = whereClauses.join(" AND ");
+    const listParams: Array<string | number> = [
+      ...whereParams,
+      pageSize,
+      offset,
+    ];
 
     const [listResult, countResult] = await Promise.all([
       this.pool.query<VideoTranscriptionTaskRow>(
-        `SELECT id,
+        `
+        SELECT id,
                 task_id,
                 video_source,
                 video_source_url,
                 user_id,
                 status,
                 progress,
+                progress_message,
                 error_message,
                 created_at,
                 updated_at
            FROM video_ts_task
-          WHERE user_id = $1
+          WHERE ${whereSql}
           ORDER BY created_at DESC
-          LIMIT $2
-          OFFSET $3`,
-        [userId, pageSize, offset],
+          LIMIT $${whereParams.length + 1}
+          OFFSET $${whereParams.length + 2}
+        `,
+        listParams,
       ),
       this.pool.query<{ count: string }>(
-        `SELECT COUNT(*) AS count
+        `
+        SELECT COUNT(*) AS count
            FROM video_ts_task
-          WHERE user_id = $1`,
-        [userId],
+          WHERE ${whereSql}
+        `,
+        whereParams,
       ),
     ]);
 
@@ -294,11 +330,23 @@ export class VideoTranscriptionService {
 
   async listTasksWithDetails(
     userId: string,
-    options: { page: number; pageSize: number },
+    options: { page: number; pageSize: number; status?: string },
   ): Promise<PaginatedVideoTranscriptionTasksWithDetails> {
     const page = Math.max(1, options.page);
     const pageSize = Math.max(1, options.pageSize);
     const offset = (page - 1) * pageSize;
+    const whereClauses = ["user_id = $1"];
+    const whereParams: string[] = [userId];
+    if (options.status) {
+      whereParams.push(options.status);
+      whereClauses.push(`status = $${whereParams.length}`);
+    }
+    const whereSql = whereClauses.join(" AND ");
+    const listParams: Array<string | number> = [
+      ...whereParams,
+      pageSize,
+      offset,
+    ];
 
     const [joinedResult, countResult] = await Promise.all([
       this.pool.query<JoinedTaskDetailRow>(
@@ -311,14 +359,15 @@ export class VideoTranscriptionService {
                  user_id,
                  status,
                  progress,
+                 progress_message,
                  error_message,
                  created_at,
                  updated_at
             FROM video_ts_task
-           WHERE user_id = $1
+           WHERE ${whereSql}
            ORDER BY created_at DESC
-           LIMIT $2
-           OFFSET $3
+           LIMIT $${whereParams.length + 1}
+           OFFSET $${whereParams.length + 2}
         )
         SELECT
           t.id AS t_id,
@@ -328,6 +377,7 @@ export class VideoTranscriptionService {
           t.user_id AS t_user_id,
           t.status AS t_status,
           t.progress AS t_progress,
+          t.progress_message AS t_progress_message,
           t.error_message AS t_error_message,
           t.created_at AS t_created_at,
           t.updated_at AS t_updated_at,
@@ -346,13 +396,13 @@ export class VideoTranscriptionService {
           ON d.vtt_id = t.id
         ORDER BY t.created_at DESC, d.created_at ASC NULLS LAST, d.id ASC NULLS LAST
         `,
-        [userId, pageSize, offset],
+        listParams,
       ),
       this.pool.query<{ count: string }>(
         `SELECT COUNT(*) AS count
            FROM video_ts_task
-          WHERE user_id = $1`,
-        [userId],
+          WHERE ${whereSql}`,
+        whereParams,
       ),
     ]);
 
@@ -372,6 +422,7 @@ export class VideoTranscriptionService {
               ? row.t_progress
               : row.t_progress ?? null,
           ),
+          progressMessage: row.t_progress_message,
           errorMessage: row.t_error_message,
           createdAt: row.t_created_at.toISOString(),
           updatedAt: row.t_updated_at.toISOString(),
@@ -663,6 +714,7 @@ export class VideoTranscriptionService {
   ): Promise<void> {
     const normalizedStatus = this.mapRemoteStatus(event.status);
     const progressValue = this.normalizeProgress(event.progress);
+    const progressMessage = event.message ?? null;
     let nextStatus: "processing" | "completed" | "failed" = normalizedStatus;
     let errorMessage =
       normalizedStatus === "failed"
@@ -703,13 +755,15 @@ export class VideoTranscriptionService {
       `UPDATE video_ts_task
        SET status = $2,
            progress = COALESCE($3, progress),
-           error_message = $4,
-           updated_at = $5
+           progress_message = $4,
+           error_message = $5,
+           updated_at = $6
        WHERE id = $1`,
       [
         params.taskRecordId,
         nextStatus,
         progressValue,
+        progressMessage,
         errorMessage,
         updatedAt,
       ],
@@ -721,15 +775,81 @@ export class VideoTranscriptionService {
       userId: params.userId,
       status: nextStatus,
       progress: progressValue,
+      progressMessage,
       errorMessage,
       updatedAt: updatedAt.toISOString(),
     });
+
+    if (nextStatus === "completed" || nextStatus === "failed") {
+      const notificationMessage =
+        nextStatus === "completed"
+          ? event.message ?? null
+          : errorMessage ?? event.error ?? event.message ?? null;
+      await this.notifyTaskOutcome(params, nextStatus, notificationMessage);
+    }
 
     if (nextStatus === "failed") {
       console.warn(
         `[video-ts] Task ${params.taskId} failed: ${errorMessage ?? event.error ?? event.message}`,
       );
     }
+  }
+
+  private async notifyTaskOutcome(
+    params: MonitorTaskParams,
+    status: "completed" | "failed",
+    message?: string | null,
+  ): Promise<void> {
+    if (!this.notificationService) {
+      return;
+    }
+
+    try {
+      const msgStatus = "unread";
+      const msgTitle = status === "completed" ? "视频转写完成" : "视频转写失败";
+      const contentParts = [`任务ID: ${params.taskId}`];
+      const videoUrl = await this.resolveVideoSourceUrl(params);
+      if (videoUrl) {
+        contentParts.push(`视频链接: ${videoUrl}`);
+      }
+      if (message) {
+        contentParts.push(
+          status === "completed" ? `备注: ${message}` : `原因: ${message}`,
+        );
+      }
+
+      await this.notificationService.createNotification({
+        userId: params.userId,
+        msgType: "video_transcription",
+        msgStatus,
+        msgTitle,
+        msgContent: contentParts.join("\n"),
+      });
+    } catch (error) {
+      console.error(
+        `[video-ts] Failed to create notification for task ${params.taskId}`,
+        error,
+      );
+    }
+  }
+
+  private async resolveVideoSourceUrl(
+    params: MonitorTaskParams,
+  ): Promise<string | null> {
+    if (params.videoSourceUrl !== undefined) {
+      return params.videoSourceUrl;
+    }
+
+    const { rows } = await this.pool.query<{ video_source_url: string | null }>(
+      `SELECT video_source_url
+         FROM video_ts_task
+        WHERE id = $1`,
+      [params.taskRecordId],
+    );
+
+    const url = rows[0]?.video_source_url ?? null;
+    params.videoSourceUrl = url;
+    return url;
   }
 
   private mapRemoteStatus(
@@ -892,6 +1012,7 @@ export class VideoTranscriptionService {
     await this.pool.query(
       `UPDATE video_ts_task
        SET status = 'failed',
+           progress_message = $2,
            error_message = $2,
            updated_at = $3
        WHERE id = $1`,
@@ -937,6 +1058,7 @@ export class VideoTranscriptionService {
       userId: row.user_id,
       status: row.status,
       progress: parseNumeric(row.progress),
+      progressMessage: row.progress_message,
       errorMessage: row.error_message,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString(),
