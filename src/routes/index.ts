@@ -7,6 +7,7 @@ import { videosRouter } from "./videos";
 import { usersRouter } from "./users";
 import { spotlightChannelsRouter } from "./spotlightChannels";
 import { videoTranscriptionRouter } from "./videoTranscription";
+import { notificationsRouter } from "./notifications";
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use("/videos", videosRouter);
 router.use("/users", usersRouter);
 router.use("/spotlight-channels", spotlightChannelsRouter);
 router.use("/video-transcription", videoTranscriptionRouter);
+router.use("/notifications", notificationsRouter);
 
 export default router;
