@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { Router } from "express";
+import { requireAuth } from "../middleware/authentication";
 import { AppError } from "../utils/appError";
 
 interface ExportRequestBody {
@@ -27,6 +28,8 @@ const preferredColumnOrder = [
 ];
 
 export const exportRouter = Router();
+
+exportRouter.use(requireAuth);
 
 exportRouter.post("/videos", async (req, res, next) => {
   try {
@@ -265,4 +268,3 @@ function buildFilename(channelName: string | undefined, format: ExportFormat): s
 function sanitizeFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9-_]/g, "_");
 }
-

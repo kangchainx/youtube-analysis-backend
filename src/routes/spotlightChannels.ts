@@ -1,8 +1,11 @@
 import { createHash } from "crypto";
 import { Router } from "express";
+import { requireAuth } from "../middleware/authentication";
 import { spotlightChannelService } from "../services";
 
 export const spotlightChannelsRouter = Router();
+
+spotlightChannelsRouter.use(requireAuth);
 
 const CACHE_TTL_SECONDS = 300;
 
@@ -39,4 +42,3 @@ spotlightChannelsRouter.get("/", async (req, res, next) => {
     next(error);
   }
 });
-
