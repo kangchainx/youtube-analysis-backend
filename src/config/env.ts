@@ -1,3 +1,4 @@
+import path from "node:path";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -13,6 +14,7 @@ export interface AppConfig {
   spotlight: SpotlightConfig;
   videoTranscription: VideoTranscriptionConfig;
   objectStorage: ObjectStorageConfig;
+  logging: LoggingConfig;
 }
 
 export interface GoogleOAuthConfig {
@@ -61,6 +63,16 @@ export interface DatabaseConfig {
   user: string;
   password: string;
   name: string;
+}
+
+export interface LoggingConfig {
+  level: string;
+  consoleLevel: string;
+  fileLevel: string;
+  directory: string;
+  fileName: string;
+  maxSizeMB: number;
+  maxFiles: number;
 }
 
 function parsePort(value: string | undefined, fallback: number): number {
@@ -245,6 +257,30 @@ function loadObjectStorageConfig(): ObjectStorageConfig {
   return baseConfig;
 }
 
+function resolveLogDirectory(value: string | undefined): string {
+  if (!value || value.trim().length === 0) {
+    return path.join(process.cwd(), "logs");
+  }
+
+  return path.isAbsolute(value) ? value : path.resolve(process.cwd(), value);
+}
+
+function loadLoggingConfig(): LoggingConfig {
+  const baseLevel = process.env.LOG_LEVEL ?? "info";
+  const fileLevel = process.env.LOG_FILE_LEVEL ?? baseLevel;
+  const consoleLevel = process.env.LOG_CONSOLE_LEVEL ?? baseLevel;
+
+  return {
+    level: baseLevel,
+    consoleLevel,
+    fileLevel,
+    directory: resolveLogDirectory(process.env.LOG_DIR ?? process.env.LOG_DIRECTORY),
+    fileName: process.env.LOG_FILE_NAME ?? "application.log",
+    maxSizeMB: parsePositiveInteger(process.env.LOG_MAX_SIZE_MB, 10, "LOG_MAX_SIZE_MB"),
+    maxFiles: parsePositiveInteger(process.env.LOG_MAX_FILES, 5, "LOG_MAX_FILES"),
+  };
+}
+
 export function loadConfig(): AppConfig {
   const port = parsePort(process.env.PORT, 5001);
 
@@ -258,6 +294,7 @@ export function loadConfig(): AppConfig {
     spotlight: loadSpotlightConfig(),
     videoTranscription: loadVideoTranscriptionConfig(),
     objectStorage: loadObjectStorageConfig(),
+    logging: loadLoggingConfig(),
   };
 
   if (process.env.CLIENT_ORIGIN) {

@@ -1,6 +1,9 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/authentication";
 
 export const videosRouter = Router();
+
+videosRouter.use(requireAuth);
 
 const SAMPLE_VIDEOS = [
   {

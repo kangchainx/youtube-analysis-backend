@@ -9,7 +9,9 @@
     "start": "node dist/server.js",
     "test": "echo \"No tests configured\"",
     "sync:spotlight": "ts-node-dev --transpile-only src/workers/syncSpotlightChannels.ts",
-    "sync:spotlight:prod": "node dist/workers/syncSpotlightChannels.js"
+    "sync:spotlight:prod": "node dist/workers/syncSpotlightChannels.js",
+    "sync:subscriptions": "ts-node-dev --transpile-only src/workers/syncSubscribedChannels.ts",
+    "sync:subscriptions:prod": "node dist/workers/syncSubscribedChannels.js"
   },
   "keywords": [
     "node",
@@ -33,7 +35,8 @@
     "jsonwebtoken": "^9.0.2",
     "minio": "^8.0.6",
     "pg": "^8.16.3",
-    "undici": "^5.29.0"
+    "undici": "^5.29.0",
+    "winston": "^3.18.3"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
