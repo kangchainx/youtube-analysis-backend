@@ -54,6 +54,13 @@ Copy `.env.example` to `.env` and adjust the following keys as needed:
 - `DB_USER` — Database user.
 - `DB_PASSWORD` — Database password.
 - `DB_NAME` — Database name.
+- `LOG_LEVEL` — Base log level for Winston transports (defaults to `info`).
+- `LOG_CONSOLE_LEVEL` — Override console log level (defaults to `LOG_LEVEL`).
+- `LOG_FILE_LEVEL` — Override file log level (defaults to `LOG_LEVEL`).
+- `LOG_DIR` — Directory used for log files (defaults to `<project>/logs`).
+- `LOG_FILE_NAME` — File name for log output (defaults to `application.log`).
+- `LOG_MAX_SIZE_MB` — Max log file size before rotation in MB (defaults to `10`).
+- `LOG_MAX_FILES` — Number of rotated log files to keep (defaults to `5`).
 
 ### Available scripts
 
@@ -78,6 +85,17 @@ All routes are prefixed with `/api`.
 | GET    | `/users/me`              | Return the authenticated user's profile                              |
 | PATCH  | `/users/me`              | Update name, email, avatar, or password for the authenticated user   |
 | POST   | `/export/videos?format=` | Export videos to CSV (`format=csv`) or Excel (`format=excel`)        |
+| POST   | `/youtube/subscribe`                  | Fetch a channel + playlists + videos from YouTube and persist them  |
+| GET    | `/youtube/channels`                     | List stored channel metadata plus aggregated statistics             |
+| GET    | `/youtube/channels/:channelId`          | Fetch a single channel with its stats                               |
+| GET    | `/youtube/channels/:channelId/playlists`| List playlists that belong to the channel                           |
+| GET    | `/youtube/channels/:channelId/videos`   | Paginated list of channel videos (includes statistics)              |
+| GET    | `/youtube/playlists/:playlistId`        | Fetch playlist metadata                                             |
+| GET    | `/youtube/playlists/:playlistId/videos` | Paginated list of videos inside a playlist                          |
+| GET    | `/youtube/videos/:videoId`              | Fetch a single video's metadata and statistics                      |
+| GET    | `/youtube/subscription-status?channel_id=` | Return whether the current user has subscribed to the channel    |
+
+`POST /api/youtube/subscribe` expects a JSON body `{ "channel_id": "UC..." }` (snake_case is preferred, `channelId` is also accepted). The backend fetches the channel profile, all playlists, and every video (plus statistics) via the YouTube Data API and stores the data into the corresponding `youtube_*` tables for later reads.
 
 Replace the sample video routes with your domain specific logic as you integrate with YouTube data sources.
 
@@ -158,10 +176,15 @@ src/
   config/env.ts       // Environment variable parsing
   middleware/         // Common Express middlewares (errors, etc.)
   models/user.ts      // Lightweight user model
+  models/youtube.ts   // YouTube metadata and statistics contracts
   routes/auth.ts      // Google SSO endpoints
   routes/export.ts    // Video export endpoints
   routes/             // REST route definitions
+  routes/youtubeMetadata.ts // Read APIs for youtube_* tables
   services/           // Auth, Google, session helpers
+  services/youtubeSubscriptionService.ts // Subscribe flow that syncs channels/playlists/videos
+  services/youtubeMetadataService.ts // Encapsulated queries for youtube_* tables
+  utils/logger.ts     // Winston logger configured for console + file output
   utils/              // Shared utilities (time, errors)
 ```
 
