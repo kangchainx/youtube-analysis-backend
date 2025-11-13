@@ -67,6 +67,10 @@ Copy `.env.example` to `.env` and adjust the following keys as needed:
 - `npm run dev` — start the development server with hot reload via `ts-node-dev`.
 - `npm run build` — type-check and emit production ready JavaScript into `dist/`.
 - `npm start` — run the compiled server from `dist/`.
+- `npm run sync:spotlight` / `npm run sync:spotlight:prod` — refresh spotlight channels locally or from the compiled build.
+- `npm run sync:subscriptions` / `npm run sync:subscriptions:prod` — run the subscribed-channel sync job once (same work the daily job performs at 00:00).
+
+The server automatically schedules a subscribed-channel maintenance job at **00:00 (server local time)** to refresh channel metadata, playlists, and videos for every entry in `subscribed_channel_info`. Use the scripts above whenever you need to trigger the job manually (e.g. after deploying a fix or populating new subscriptions).
 
 ## API Overview
 
