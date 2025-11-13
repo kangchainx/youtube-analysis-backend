@@ -5,6 +5,7 @@ import {
   youtubeMetadataService,
   youtubeSubscriptionService,
 } from "../services";
+import type { SubscriptionFilterOptions } from "../services/subscribedChannelService";
 import { AppError } from "../utils/appError";
 
 export const youtubeMetadataRouter = Router();
@@ -217,17 +218,28 @@ youtubeMetadataRouter.get("/subscriptions", async (req, res, next) => {
     const channelNameFilter = normalizeQueryValue(req.query.channel_name ?? req.query.channelName);
     const countryFilter = normalizeQueryValue(req.query.country);
 
+    const filters: SubscriptionFilterOptions = {};
+    if (channelIdFilter) {
+      filters.channelId = channelIdFilter;
+    }
+    if (customUrlFilter) {
+      filters.customUrl = customUrlFilter;
+    }
+    if (channelNameFilter) {
+      filters.channelName = channelNameFilter;
+    }
+    if (countryFilter) {
+      filters.country = countryFilter;
+    }
+
+    const hasFilters = Object.keys(filters).length > 0;
+
     const subscriptions = await subscribedChannelService.listUserSubscriptions(
       currentUser.id,
       {
         limit,
         offset,
-        filters: {
-          channelId: channelIdFilter,
-          customUrl: customUrlFilter,
-          channelName: channelNameFilter,
-          country: countryFilter,
-        },
+        ...(hasFilters ? { filters } : {}),
       },
     );
 
