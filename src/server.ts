@@ -1,6 +1,7 @@
 import http from "http";
 import { createApp } from "./app";
 import { config } from "./config/env";
+import { scheduleSubscribedChannelSyncJob } from "./jobs/subscriptionSync";
 import { configureProxyFromEnv } from "./utils/proxy";
 import { logger } from "./utils/logger";
 
@@ -18,6 +19,7 @@ if (proxyEnabled) {
 
 server.listen(config.port, () => {
   logger.info(`Server ready on http://localhost:${config.port}`);
+  scheduleSubscribedChannelSyncJob();
 });
 
 function gracefulShutdown(signal: NodeJS.Signals) {

@@ -137,6 +137,16 @@ export class SubscribedChannelService {
     }));
   }
 
+  async listDistinctChannelIds(): Promise<string[]> {
+    const { rows } = await this.pool.query<{ channel_id: string }>(
+      `SELECT DISTINCT channel_id
+       FROM subscribed_channel_info
+       ORDER BY channel_id ASC`,
+    );
+
+    return rows.map((row) => row.channel_id);
+  }
+
   async isUserSubscribedToChannel(userId: string, channelId: string): Promise<boolean> {
     const result = await this.pool.query(
       `SELECT 1

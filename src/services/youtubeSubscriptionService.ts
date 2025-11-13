@@ -8,10 +8,13 @@ import {
 import { YouTubeMetadataService } from "./youtubeMetadataService";
 import { SubscribedChannelService } from "./subscribedChannelService";
 
-export interface SubscribeChannelResult {
+export interface ChannelSyncResult {
   channelId: string;
   playlistsProcessed: number;
   videosProcessed: number;
+}
+
+export interface SubscribeChannelResult extends ChannelSyncResult {
   subscribed: boolean;
 }
 
@@ -27,32 +30,51 @@ export class YouTubeSubscriptionService {
     logger.info("Starting YouTube channel subscription", { channelId: trimmed });
 
     const existingChannel = await this.metadataService.getChannelById(trimmed);
-    if (existingChannel) {
-      logger.info("Channel metadata already exists locally, skipping YouTube sync", {
-        channelId: trimmed,
-      });
-      const subscribed = await this.subscribedChannelService.subscribeUserToChannel(
-        userId,
-        trimmed,
-        existingChannel.customUrl ?? trimmed,
-      );
-      logger.info("Recorded user subscription for existing channel", {
-        userId,
-        channelId: trimmed,
-        subscribed,
-      });
-
-      return {
-        channelId: trimmed,
-        playlistsProcessed: 0,
-        videosProcessed: 0,
-        subscribed,
-      };
+    let syncResult: (ChannelSyncResult & { customUrl: string | null }) | null = null;
+    if (!existingChannel) {
+      syncResult = await this.syncChannelData(trimmed);
     }
 
-    const channel = await this.youtubeDataApi.fetchChannelById(trimmed);
+    const targetChannelId = syncResult?.channelId ?? trimmed;
+    const customUrl =
+      syncResult?.customUrl ?? existingChannel?.customUrl ?? targetChannelId;
+
+    const subscribed = await this.subscribedChannelService.subscribeUserToChannel(
+      userId,
+      targetChannelId,
+      customUrl ?? targetChannelId,
+    );
+    logger.info("Recorded user subscription after channel sync", {
+      userId,
+      channelId: targetChannelId,
+      subscribed,
+    });
+
+    return {
+      channelId: targetChannelId,
+      playlistsProcessed: syncResult?.playlistsProcessed ?? 0,
+      videosProcessed: syncResult?.videosProcessed ?? 0,
+      subscribed,
+    };
+  }
+
+  async refreshChannel(channelId: string): Promise<ChannelSyncResult> {
+    const trimmed = channelId.trim();
+    const result = await this.syncChannelData(trimmed);
+    return {
+      channelId: result.channelId,
+      playlistsProcessed: result.playlistsProcessed,
+      videosProcessed: result.videosProcessed,
+    };
+  }
+
+  private async syncChannelData(
+    channelId: string,
+  ): Promise<ChannelSyncResult & { customUrl: string | null }> {
+    logger.info("Syncing YouTube channel metadata", { channelId });
+    const channel = await this.youtubeDataApi.fetchChannelById(channelId);
     if (!channel) {
-      logger.warn("Channel not found during subscription", { channelId: trimmed });
+      logger.warn("Channel not found during sync", { channelId });
       throw new AppError("未找到对应的频道", {
         statusCode: 404,
         code: "CHANNEL_NOT_FOUND",
@@ -149,18 +171,7 @@ export class YouTubeSubscriptionService {
       });
     }
 
-    const subscribed = await this.subscribedChannelService.subscribeUserToChannel(
-      userId,
-      channel.id,
-      channel.customUrl ?? channel.id,
-    );
-    logger.info("Recorded user subscription after channel sync", {
-      userId,
-      channelId: channel.id,
-      subscribed,
-    });
-
-    logger.info("Finished channel subscription sync", {
+    logger.info("Finished channel sync", {
       channelId: channel.id,
       playlistCount: playlistsProcessed,
       videoCount: videosProcessed,
@@ -170,7 +181,7 @@ export class YouTubeSubscriptionService {
       channelId: channel.id,
       playlistsProcessed,
       videosProcessed,
-      subscribed,
+      customUrl: channel.customUrl ?? null,
     };
   }
 
