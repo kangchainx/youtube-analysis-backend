@@ -107,7 +107,6 @@ async function syncSpotlightChannels(): Promise<void> {
   for (const [index, handle] of handles.entries()) {
     const normalizedHandle = handle.toLowerCase();
     try {
-      console.log(`Syncing spotlight channel for handle: ${handle}`);
       const details = await youtubeDataApi.fetchChannelByHandle(handle);
 
       if (!details) {
@@ -131,7 +130,7 @@ async function syncSpotlightChannels(): Promise<void> {
         orderIndex: index + 1,
       });
 
-      console.log(`Synced channel ${details.title} (${details.id})`);
+      (`Synced channel ${details.title} (${details.id})`);
     } catch (error) {
       console.error(`Failed to sync handle ${handle}:`, error);
       const fallback = FALLBACK_CHANNELS[normalizedHandle];
@@ -166,10 +165,6 @@ async function persistFallback(
 async function main(): Promise<void> {
   const proxyEnabled = configureProxyFromEnv();
   try {
-    if (proxyEnabled) {
-      console.log("[proxy] Enabled fetch proxy for spotlight sync worker");
-    }
-
     await syncSpotlightChannels();
   } finally {
     await pool.end();
