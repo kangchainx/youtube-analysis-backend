@@ -53,10 +53,71 @@ youtubeMetadataRouter.post("/subscribe", async (req, res, next) => {
   }
 });
 
+youtubeMetadataRouter.delete("/subscribe", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("需要先登录后再退订频道", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    if (!req.body || typeof req.body !== "object") {
+      throw new AppError("请求体格式不正确", {
+        statusCode: 400,
+        code: "INVALID_REQUEST_BODY",
+      });
+    }
+
+    const record = req.body as Record<string, unknown>;
+    const candidate = (record.channel_id ?? record.channelId) as unknown;
+    const rawChannelId = Array.isArray(candidate) ? candidate[0] : candidate;
+    if (typeof rawChannelId !== "string" || rawChannelId.trim().length === 0) {
+      throw new AppError("channel_id 必须是非空字符串", {
+        statusCode: 400,
+        code: "CHANNEL_ID_REQUIRED",
+      });
+    }
+
+    const result = await youtubeSubscriptionService.unsubscribeChannel(
+      rawChannelId.trim(),
+      currentUser.id,
+    );
+    res.json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 youtubeMetadataRouter.get("/channels", async (_req, res, next) => {
   try {
     const channels = await youtubeMetadataService.listChannels();
     res.json({ data: channels });
+  } catch (error) {
+    next(error);
+  }
+});
+
+youtubeMetadataRouter.get("/channels/custom/:customUrl", async (req, res, next) => {
+  try {
+    const customUrl = req.params.customUrl?.trim();
+    if (!customUrl) {
+      throw new AppError("需要提供 custom_url", {
+        statusCode: 400,
+        code: "CUSTOM_URL_REQUIRED",
+      });
+    }
+
+    const channel = await youtubeMetadataService.getChannelByCustomUrl(customUrl);
+    if (!channel) {
+      throw new AppError("未找到频道", {
+        statusCode: 404,
+        code: "CHANNEL_NOT_FOUND",
+      });
+    }
+
+    res.json({ data: channel });
   } catch (error) {
     next(error);
   }
@@ -119,11 +180,15 @@ youtubeMetadataRouter.get(
       }
 
       const { limit, offset } = parsePagination(req.query.limit, req.query.offset);
+      const includeTopComment = parseBooleanFlag(
+        req.query.includeTopComment ?? req.query.include_top_comment,
+      );
       const videos = await youtubeMetadataService.listVideosByChannel(channelId, {
         limit,
         offset,
+        includeTopComment,
       });
-      res.json({ data: videos, pagination: { limit, offset } });
+      res.json({ data: videos, pagination: { limit, offset }, meta: { includeTopComment } });
     } catch (error) {
       next(error);
     }
@@ -310,6 +375,23 @@ function parsePagination(
   }
 
   return { limit, offset };
+}
+
+function parseBooleanFlag(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value === 1;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+  }
+
+  return false;
 }
 
 function normalizeQueryValue(value: unknown): string | undefined {
