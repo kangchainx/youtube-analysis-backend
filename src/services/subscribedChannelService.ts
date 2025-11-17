@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { YouTubeChannel } from "../models/youtube";
 
 export interface UserSubscribedChannel {
@@ -30,15 +30,32 @@ export class SubscribedChannelService {
     userId: string,
     channelId: string,
     customUrl: string | null,
+    client?: PoolClient,
   ): Promise<boolean> {
     const normalizedCustomUrl = customUrl ?? channelId;
 
-    const result = await this.pool.query(
+    const executor = client ?? this.pool;
+    const result = await executor.query(
       `INSERT INTO subscribed_channel_info (id, channel_id, custom_url, user_id)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, channel_id) DO NOTHING
        RETURNING 1`,
       [randomUUID(), channelId, normalizedCustomUrl, userId],
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async unsubscribeUserFromChannel(
+    userId: string,
+    channelId: string,
+    client?: PoolClient,
+  ): Promise<boolean> {
+    const executor = client ?? this.pool;
+    const result = await executor.query(
+      `DELETE FROM subscribed_channel_info
+       WHERE user_id = $1 AND channel_id = $2`,
+      [userId, channelId],
     );
 
     return (result.rowCount ?? 0) > 0;

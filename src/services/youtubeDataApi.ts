@@ -20,6 +20,11 @@ interface VideosListResponse {
   items?: VideoItem[];
 }
 
+interface CommentThreadListResponse {
+  items?: CommentThreadItem[];
+  nextPageToken?: string;
+}
+
 interface ChannelItem {
   etag?: string;
   id?: string;
@@ -101,6 +106,29 @@ interface VideoItem {
   };
 }
 
+interface CommentThreadItem {
+  snippet?: {
+    videoId?: string;
+    canReply?: boolean;
+    isPublic?: boolean;
+    totalReplyCount?: number;
+    topLevelComment?: {
+      snippet?: {
+        textOriginal?: string;
+        authorDisplayName?: string;
+        authorProfileImageUrl?: string;
+        authorChannelUrl?: string;
+        authorChannelId?: {
+          value?: string;
+        };
+        likeCount?: number;
+        publishedAt?: string;
+        updatedAt?: string;
+      };
+    };
+  };
+}
+
 export interface YouTubeChannelDetails {
   id: string;
   title: string;
@@ -161,6 +189,21 @@ export interface YouTubeVideoDetails {
     commentCount: string | null;
   };
   etag: string | null;
+}
+
+export interface YouTubeTopCommentDetails {
+  videoId: string;
+  commentContent: string | null;
+  canReply: boolean | null;
+  isPublic: boolean | null;
+  likeCount: number | null;
+  totalReplyCount: number | null;
+  authorDisplayName: string | null;
+  authorProfileImageUrl: string | null;
+  authorChannelUrl: string | null;
+  authorChannelId: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
 }
 
 const API_BASE = "https://www.googleapis.com/youtube/v3/";
@@ -298,6 +341,42 @@ export class YouTubeDataApi {
     return videos;
   }
 
+  async fetchTopCommentByVideo(
+    videoId: string,
+    options?: { excludeChannelId?: string },
+  ): Promise<YouTubeTopCommentDetails | null> {
+    const excluded = options?.excludeChannelId ?? null;
+    let pageToken: string | undefined;
+
+    do {
+      const url = this.buildUrl("commentThreads", {
+        part: "snippet",
+        videoId,
+        maxResults: "10",
+        order: "relevance",
+        pageToken,
+      });
+
+      const body = await this.request<CommentThreadListResponse>(url);
+      for (const item of body.items ?? []) {
+        const details = mapCommentThreadItemToDetails(item);
+        if (!details) {
+          continue;
+        }
+
+        if (excluded && details.authorChannelId && details.authorChannelId === excluded) {
+          continue;
+        }
+
+        return details;
+      }
+
+      pageToken = body.nextPageToken;
+    } while (pageToken);
+
+    return null;
+  }
+
   private buildUrl(path: string, params: Record<string, string | undefined>): URL {
     const url = new URL(path, API_BASE);
     url.searchParams.set("key", this.apiKey);
@@ -424,6 +503,29 @@ function mapVideoItemToDetails(item: VideoItem): YouTubeVideoDetails | null {
       commentCount: item.statistics?.commentCount ?? null,
     },
     etag: item.etag ?? null,
+  };
+}
+
+function mapCommentThreadItemToDetails(item: CommentThreadItem): YouTubeTopCommentDetails | null {
+  const snippet = item.snippet;
+  const topLevel = snippet?.topLevelComment?.snippet;
+  if (!snippet?.videoId || !topLevel) {
+    return null;
+  }
+
+  return {
+    videoId: snippet.videoId,
+    commentContent: topLevel.textOriginal ?? null,
+    canReply: snippet.canReply ?? null,
+    isPublic: snippet.isPublic ?? null,
+    likeCount: topLevel.likeCount ?? null,
+    totalReplyCount: snippet.totalReplyCount ?? null,
+    authorDisplayName: topLevel.authorDisplayName ?? null,
+    authorProfileImageUrl: topLevel.authorProfileImageUrl ?? null,
+    authorChannelUrl: topLevel.authorChannelUrl ?? null,
+    authorChannelId: topLevel.authorChannelId?.value ?? null,
+    publishedAt: topLevel.publishedAt ?? null,
+    updatedAt: topLevel.updatedAt ?? null,
   };
 }
 
