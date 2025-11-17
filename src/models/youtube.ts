@@ -67,6 +67,24 @@ export interface YouTubeVideoStatistics {
 
 export interface YouTubeVideoWithStats extends YouTubeVideo {
   statistics: YouTubeVideoStatistics | null;
+  topComment?: YouTubeVideoTopComment | null;
+}
+
+export interface YouTubeVideoTopComment {
+  videoId: string;
+  channelId: string;
+  commentContent: string | null;
+  canReply: boolean | null;
+  isPublic: boolean | null;
+  likeCount: number | null;
+  totalReplyCount: number | null;
+  authorDisplayName: string | null;
+  authorProfileImageUrl: string | null;
+  authorChannelUrl: string | null;
+  authorChannelId: string | null;
+  publishedAt: string | null;
+  updatedAt: string | null;
+  lastUpdate: string | null;
 }
 
 export interface YouTubeEtagCacheEntry {

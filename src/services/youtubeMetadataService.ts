@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type {
   YouTubeChannel,
   YouTubeChannelStatistics,
@@ -9,6 +9,7 @@ import type {
   YouTubeVideo,
   YouTubeVideoStatistics,
   YouTubeVideoWithStats,
+  YouTubeVideoTopComment,
 } from "../models/youtube";
 
 interface ChannelRow {
@@ -68,8 +69,38 @@ interface VideoWithStatsRow extends VideoRow {
   favorite_count: string | null;
   comment_count: string | null;
   statistics_last_update: Date | null;
+  top_comment_video_id?: string | null;
+  top_comment_channel_id?: string | null;
+  top_comment_comment_content?: string | null;
+  top_comment_can_reply?: boolean | null;
+  top_comment_is_public?: boolean | null;
+  top_comment_like_count?: number | null;
+  top_comment_total_reply_count?: number | null;
+  top_comment_author_display_name?: string | null;
+  top_comment_author_profile_image_url?: string | null;
+  top_comment_author_channel_url?: string | null;
+  top_comment_author_channel_id?: string | null;
+  top_comment_published_at?: Date | null;
+  top_comment_updated_at?: Date | null;
+  top_comment_last_update?: Date | null;
 }
 
+interface VideoTopCommentRow {
+  video_id: string;
+  channel_id: string;
+  comment_content: string | null;
+  can_reply: boolean | null;
+  is_public: boolean | null;
+  like_count: number | null;
+  total_reply_count: number | null;
+  author_display_name: string | null;
+  author_profile_image_url: string | null;
+  author_channel_url: string | null;
+  author_channel_id: string | null;
+  published_at: Date | null;
+  updated_at: Date | null;
+  last_update: Date | null;
+}
 interface EtagRow {
   resource_type: YouTubeResourceType;
   resource_id: string;
@@ -138,6 +169,23 @@ export interface UpsertVideoStatisticsInput {
   lastUpdate?: Date | null;
 }
 
+export interface UpsertVideoTopCommentInput {
+  videoId: string;
+  channelId: string;
+  commentContent?: string | null;
+  canReply?: boolean | null;
+  isPublic?: boolean | null;
+  likeCount?: number | null;
+  totalReplyCount?: number | null;
+  authorDisplayName?: string | null;
+  authorProfileImageUrl?: string | null;
+  authorChannelUrl?: string | null;
+  authorChannelId?: string | null;
+  publishedAt?: Date | null;
+  updatedAt?: Date | null;
+  lastUpdate?: Date | null;
+}
+
 export interface UpsertEtagInput {
   resourceType: YouTubeResourceType;
   resourceId: string;
@@ -148,6 +196,7 @@ export interface UpsertEtagInput {
 export interface VideoListOptions {
   limit?: number;
   offset?: number;
+  includeTopComment?: boolean;
 }
 
 const DEFAULT_VIDEO_LIMIT = 50;
@@ -249,7 +298,47 @@ function mapVideoWithStatsRow(row: VideoWithStatsRow): YouTubeVideoWithStats {
       }
     : null;
 
-  return { ...video, statistics };
+  const hasTopComment =
+    row.top_comment_video_id !== null && row.top_comment_video_id !== undefined;
+  const topComment: YouTubeVideoTopComment | null = hasTopComment
+    ? {
+        videoId: row.top_comment_video_id ?? row.id,
+        channelId: row.top_comment_channel_id ?? video.channelId,
+        commentContent: row.top_comment_comment_content ?? null,
+        canReply: row.top_comment_can_reply ?? null,
+        isPublic: row.top_comment_is_public ?? null,
+        likeCount: row.top_comment_like_count ?? null,
+        totalReplyCount: row.top_comment_total_reply_count ?? null,
+        authorDisplayName: row.top_comment_author_display_name ?? null,
+        authorProfileImageUrl: row.top_comment_author_profile_image_url ?? null,
+        authorChannelUrl: row.top_comment_author_channel_url ?? null,
+        authorChannelId: row.top_comment_author_channel_id ?? null,
+        publishedAt: toIso(row.top_comment_published_at ?? null),
+        updatedAt: toIso(row.top_comment_updated_at ?? null),
+        lastUpdate: toIso(row.top_comment_last_update ?? null),
+      }
+    : null;
+
+  return { ...video, statistics, topComment };
+}
+
+function mapVideoTopCommentRow(row: VideoTopCommentRow): YouTubeVideoTopComment {
+  return {
+    videoId: row.video_id,
+    channelId: row.channel_id,
+    commentContent: row.comment_content,
+    canReply: row.can_reply,
+    isPublic: row.is_public,
+    likeCount: row.like_count,
+    totalReplyCount: row.total_reply_count,
+    authorDisplayName: row.author_display_name,
+    authorProfileImageUrl: row.author_profile_image_url,
+    authorChannelUrl: row.author_channel_url,
+    authorChannelId: row.author_channel_id,
+    publishedAt: toIso(row.published_at),
+    updatedAt: toIso(row.updated_at),
+    lastUpdate: toIso(row.last_update),
+  };
 }
 
 function mapEtagRow(row: EtagRow): YouTubeEtagCacheEntry {
@@ -263,6 +352,26 @@ function mapEtagRow(row: EtagRow): YouTubeEtagCacheEntry {
 
 export class YouTubeMetadataService {
   constructor(private readonly pool: Pool) {}
+
+  async runInTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await callback(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        // eslint-disable-next-line no-console
+        console.error("Failed to rollback transaction", rollbackError);
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 
   async listChannels(): Promise<YouTubeChannelWithStats[]> {
     const { rows } = await this.pool.query<ChannelWithStatsRow>(
@@ -288,8 +397,12 @@ export class YouTubeMetadataService {
     return rows.map(mapChannelWithStatsRow);
   }
 
-  async getChannelById(channelId: string): Promise<YouTubeChannelWithStats | null> {
-    const { rows } = await this.pool.query<ChannelWithStatsRow>(
+  async getChannelById(
+    channelId: string,
+    client?: PoolClient,
+  ): Promise<YouTubeChannelWithStats | null> {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<ChannelWithStatsRow>(
       `SELECT c.id,
               c.title,
               c.description,
@@ -314,8 +427,40 @@ export class YouTubeMetadataService {
     return row ? mapChannelWithStatsRow(row) : null;
   }
 
-  async upsertChannel(input: UpsertChannelInput): Promise<YouTubeChannel> {
-    const { rows } = await this.pool.query<ChannelRow>(
+  async getChannelByCustomUrl(
+    customUrl: string,
+    client?: PoolClient,
+  ): Promise<YouTubeChannelWithStats | null> {
+    const normalizedHandle = customUrl.startsWith("@") ? customUrl : `@${customUrl}`;
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<ChannelWithStatsRow>(
+      `SELECT c.id,
+              c.title,
+              c.description,
+              c.custom_url,
+              c.country,
+              c.published_at,
+              c.thumbnail_url,
+              c.uploads_playlist_id,
+              c.last_sync,
+              stats.subscriber_count,
+              stats.video_count,
+              stats.view_count,
+              stats.hidden_subscriber_count,
+              stats.last_update AS statistics_last_update
+       FROM youtube_channels c
+       LEFT JOIN youtube_channel_statistics stats ON stats.channel_id = c.id
+       WHERE LOWER(c.custom_url) = LOWER($1)`,
+      [normalizedHandle],
+    );
+
+    const row = rows[0];
+    return row ? mapChannelWithStatsRow(row) : null;
+  }
+
+  async upsertChannel(input: UpsertChannelInput, client?: PoolClient): Promise<YouTubeChannel> {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<ChannelRow>(
       `INSERT INTO youtube_channels (
          id,
          title,
@@ -370,8 +515,10 @@ export class YouTubeMetadataService {
 
   async upsertChannelStatistics(
     input: UpsertChannelStatisticsInput,
+    client?: PoolClient,
   ): Promise<YouTubeChannelStatistics> {
-    const { rows } = await this.pool.query<ChannelWithStatsRow>(
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<ChannelWithStatsRow>(
       `INSERT INTO youtube_channel_statistics (
          channel_id,
          subscriber_count,
@@ -465,8 +612,9 @@ export class YouTubeMetadataService {
     return row ? mapPlaylistRow(row) : null;
   }
 
-  async upsertPlaylist(input: UpsertPlaylistInput): Promise<YouTubePlaylist> {
-    const { rows } = await this.pool.query<PlaylistRow>(
+  async upsertPlaylist(input: UpsertPlaylistInput, client?: PoolClient): Promise<YouTubePlaylist> {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<PlaylistRow>(
       `INSERT INTO youtube_playlists (
          id,
          channel_id,
@@ -521,6 +669,27 @@ export class YouTubeMetadataService {
   ): Promise<YouTubeVideoWithStats[]> {
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_VIDEO_LIMIT, 1), MAX_VIDEO_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
+    const includeTopComment = options?.includeTopComment ?? false;
+    const topCommentSelect = includeTopComment
+      ? `,
+         top.video_id AS top_comment_video_id,
+         top.channel_id AS top_comment_channel_id,
+         top.comment_content AS top_comment_comment_content,
+         top.can_reply AS top_comment_can_reply,
+         top.is_public AS top_comment_is_public,
+         top.like_count AS top_comment_like_count,
+         top.total_reply_count AS top_comment_total_reply_count,
+         top.author_display_name AS top_comment_author_display_name,
+         top.author_profile_image_url AS top_comment_author_profile_image_url,
+         top.author_channel_url AS top_comment_author_channel_url,
+         top.author_channel_id AS top_comment_author_channel_id,
+         top.published_at AS top_comment_published_at,
+         top.updated_at AS top_comment_updated_at,
+         top.last_update AS top_comment_last_update`
+      : "";
+    const topCommentJoin = includeTopComment
+      ? "LEFT JOIN youtube_video_top_comment top ON top.video_id = v.id"
+      : "";
 
     const { rows } = await this.pool.query<VideoWithStatsRow>(
       `SELECT v.id,
@@ -545,8 +714,10 @@ export class YouTubeMetadataService {
               stats.favorite_count,
               stats.comment_count,
               stats.last_update AS statistics_last_update
+              ${topCommentSelect}
        FROM youtube_videos v
        LEFT JOIN youtube_video_statistics stats ON stats.video_id = v.id
+       ${topCommentJoin}
        WHERE v.channel_id = $1
        ORDER BY v.published_at DESC NULLS LAST, v.title ASC
        LIMIT $2 OFFSET $3`,
@@ -562,6 +733,27 @@ export class YouTubeMetadataService {
   ): Promise<YouTubeVideoWithStats[]> {
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_VIDEO_LIMIT, 1), MAX_VIDEO_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
+    const includeTopComment = options?.includeTopComment ?? false;
+    const topCommentSelect = includeTopComment
+      ? `,
+         top.video_id AS top_comment_video_id,
+         top.channel_id AS top_comment_channel_id,
+         top.comment_content AS top_comment_comment_content,
+         top.can_reply AS top_comment_can_reply,
+         top.is_public AS top_comment_is_public,
+         top.like_count AS top_comment_like_count,
+         top.total_reply_count AS top_comment_total_reply_count,
+         top.author_display_name AS top_comment_author_display_name,
+         top.author_profile_image_url AS top_comment_author_profile_image_url,
+         top.author_channel_url AS top_comment_author_channel_url,
+         top.author_channel_id AS top_comment_author_channel_id,
+         top.published_at AS top_comment_published_at,
+         top.updated_at AS top_comment_updated_at,
+         top.last_update AS top_comment_last_update`
+      : "";
+    const topCommentJoin = includeTopComment
+      ? "LEFT JOIN youtube_video_top_comment top ON top.video_id = v.id"
+      : "";
 
     const { rows } = await this.pool.query<VideoWithStatsRow>(
       `SELECT v.id,
@@ -586,8 +778,10 @@ export class YouTubeMetadataService {
               stats.favorite_count,
               stats.comment_count,
               stats.last_update AS statistics_last_update
+              ${topCommentSelect}
        FROM youtube_videos v
        LEFT JOIN youtube_video_statistics stats ON stats.video_id = v.id
+       ${topCommentJoin}
        WHERE v.playlist_id = $1
        ORDER BY v.published_at DESC NULLS LAST, v.title ASC
        LIMIT $2 OFFSET $3`,
@@ -631,8 +825,9 @@ export class YouTubeMetadataService {
     return row ? mapVideoWithStatsRow(row) : null;
   }
 
-  async upsertVideo(input: UpsertVideoInput): Promise<YouTubeVideo> {
-    const { rows } = await this.pool.query<VideoRow>(
+  async upsertVideo(input: UpsertVideoInput, client?: PoolClient): Promise<YouTubeVideo> {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<VideoRow>(
       `INSERT INTO youtube_videos (
          id,
          channel_id,
@@ -719,8 +914,10 @@ export class YouTubeMetadataService {
 
   async upsertVideoStatistics(
     input: UpsertVideoStatisticsInput,
+    client?: PoolClient,
   ): Promise<YouTubeVideoStatistics> {
-    const { rows } = await this.pool.query<VideoWithStatsRow>(
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<VideoWithStatsRow>(
       `INSERT INTO youtube_video_statistics (
          video_id,
          view_count,
@@ -784,11 +981,91 @@ export class YouTubeMetadataService {
     };
   }
 
+  async upsertVideoTopComment(
+    input: UpsertVideoTopCommentInput,
+    client?: PoolClient,
+  ): Promise<YouTubeVideoTopComment> {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<VideoTopCommentRow>(
+      `INSERT INTO youtube_video_top_comment (
+         video_id,
+         channel_id,
+         comment_content,
+         can_reply,
+         is_public,
+         like_count,
+         total_reply_count,
+         author_display_name,
+         author_profile_image_url,
+         author_channel_url,
+         author_channel_id,
+         published_at,
+         updated_at,
+         last_update
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       ON CONFLICT (video_id)
+       DO UPDATE SET
+         channel_id = EXCLUDED.channel_id,
+         comment_content = EXCLUDED.comment_content,
+         can_reply = EXCLUDED.can_reply,
+         is_public = EXCLUDED.is_public,
+         like_count = EXCLUDED.like_count,
+         total_reply_count = EXCLUDED.total_reply_count,
+         author_display_name = EXCLUDED.author_display_name,
+         author_profile_image_url = EXCLUDED.author_profile_image_url,
+         author_channel_url = EXCLUDED.author_channel_url,
+         author_channel_id = EXCLUDED.author_channel_id,
+         published_at = EXCLUDED.published_at,
+         updated_at = EXCLUDED.updated_at,
+         last_update = EXCLUDED.last_update
+       RETURNING video_id,
+                 channel_id,
+                 comment_content,
+                 can_reply,
+                 is_public,
+                 like_count,
+                 total_reply_count,
+                 author_display_name,
+                 author_profile_image_url,
+                 author_channel_url,
+                 author_channel_id,
+                 published_at,
+                 updated_at,
+                 last_update`,
+      [
+        input.videoId,
+        input.channelId,
+        input.commentContent ?? null,
+        input.canReply ?? null,
+        input.isPublic ?? null,
+        input.likeCount ?? null,
+        input.totalReplyCount ?? null,
+        input.authorDisplayName ?? null,
+        input.authorProfileImageUrl ?? null,
+        input.authorChannelUrl ?? null,
+        input.authorChannelId ?? null,
+        input.publishedAt ?? null,
+        input.updatedAt ?? null,
+        input.lastUpdate ?? new Date(),
+      ],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error("Unable to upsert youtube_video_top_comment record");
+    }
+
+    return mapVideoTopCommentRow(row);
+  }
+
   async getEtag(
     resourceType: YouTubeResourceType,
     resourceId: string,
+    client?: PoolClient,
   ): Promise<YouTubeEtagCacheEntry | null> {
-    const { rows } = await this.pool.query<EtagRow>(
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<EtagRow>(
       `SELECT resource_type, resource_id, etag, last_checked
        FROM youtube_etag_cache
        WHERE resource_type = $1 AND resource_id = $2`,
@@ -799,8 +1076,12 @@ export class YouTubeMetadataService {
     return row ? mapEtagRow(row) : null;
   }
 
-  async upsertEtag(input: UpsertEtagInput): Promise<YouTubeEtagCacheEntry> {
-    const { rows } = await this.pool.query<EtagRow>(
+  async upsertEtag(
+    input: UpsertEtagInput,
+    client?: PoolClient,
+  ): Promise<YouTubeEtagCacheEntry> {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<EtagRow>(
       `INSERT INTO youtube_etag_cache (
          resource_type,
          resource_id,
