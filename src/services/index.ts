@@ -6,11 +6,14 @@ import { UserService } from "./userService";
 import { SpotlightChannelService } from "./spotlightChannelService";
 import { VideoTranscriptionService } from "./videoTranscriptionService";
 import { YouTubeDataApi } from "./youtubeDataApi";
+import { YouTubeAnalyticsApi } from "./youtubeAnalyticsApi";
 import { ObjectStorageService } from "./objectStorageService";
 import { YouTubeMetadataService } from "./youtubeMetadataService";
 import { NotificationService } from "./notificationService";
 import { YouTubeSubscriptionService } from "./youtubeSubscriptionService";
 import { SubscribedChannelService } from "./subscribedChannelService";
+import { UserChannelService } from "./userChannelService";
+import { YouTubeChannelService } from "./youtubeChannelService";
 
 export const googleOAuthService = new GoogleOAuthService(config.googleOAuth);
 export const userService = new UserService(pool);
@@ -23,6 +26,9 @@ export const videoTranscriptionService = new VideoTranscriptionService(
   notificationService,
 );
 export const youtubeDataApi = new YouTubeDataApi(config.youtube.apiKey);
+export const youtubeAnalyticsApi = new YouTubeAnalyticsApi();
+export const youtubeChannelService = new YouTubeChannelService();
+export const userChannelService = new UserChannelService(pool, youtubeChannelService);
 export const objectStorageService = new ObjectStorageService(
   config.objectStorage,
 );

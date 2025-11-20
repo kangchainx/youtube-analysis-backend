@@ -9,6 +9,7 @@ import { spotlightChannelsRouter } from "./spotlightChannels";
 import { videoTranscriptionRouter } from "./videoTranscription";
 import { notificationsRouter } from "./notifications";
 import { youtubeMetadataRouter } from "./youtubeMetadata";
+import { youtubeAnalyticsRouter } from "./youtubeAnalytics";
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use("/spotlight-channels", spotlightChannelsRouter);
 router.use("/video-transcription", videoTranscriptionRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/youtube", youtubeMetadataRouter);
+router.use("/youtube/analytics", youtubeAnalyticsRouter);
 
 export default router;
