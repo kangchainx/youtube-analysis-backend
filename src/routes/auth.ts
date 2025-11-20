@@ -6,7 +6,13 @@ import type { CookieOptions } from "express";
 import { Router } from "express";
 import { config } from "../config/env";
 import type { AuthorizationUrlOptions, GoogleTokens } from "../services/googleOAuth";
-import { googleOAuthService, sessionService, userService } from "../services";
+import {
+  googleOAuthService,
+  sessionService,
+  userService,
+  youtubeChannelService,
+  userChannelService,
+} from "../services";
 import type { User } from "../models/user";
 import { AppError } from "../utils/appError";
 import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../utils/password";
@@ -309,10 +315,14 @@ authRouter.post("/google/callback", async (req, res, next) => {
       });
     }
 
-    const { tokens, profile } =
-      await googleOAuthService.exchangeCodeForTokens(code);
+    const { tokens, profile } = await googleOAuthService.exchangeCodeForTokens(code);
+    const channelSummaries = await youtubeChannelService.fetchOwnedAndManagedChannels(
+      tokens.accessToken,
+    );
+    console.log("[auth/google/callback] access_token:", tokens.accessToken);
 
     const user = await userService.findOrCreateFromGoogleProfile(profile);
+    await userChannelService.syncUserChannels(user.id, tokens.accessToken);
     const { session, token } = await sessionService.createSession(user, tokens);
 
     const cookieConfig = cookieOptions(true);

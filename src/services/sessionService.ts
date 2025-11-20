@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import type { Pool } from "pg";
 import type { SessionConfig } from "../config/env";
 import type { GoogleTokens } from "./googleOAuth";
+import type { ChannelSummary } from "./youtubeChannelService";
 import type { User } from "../models/user";
 import { AppError } from "../utils/appError";
 
