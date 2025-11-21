@@ -36,6 +36,7 @@ export class YouTubeSubscriptionService {
     const trimmed = channelId.trim();
     logger.info("Starting YouTube channel subscription", { channelId: trimmed });
 
+    // 订阅逻辑放在事务里：如需补全频道元数据会与订阅记录同时成功/失败
     const result = await this.metadataService.runInTransaction(async (client) => {
       const existingChannel = await this.metadataService.getChannelById(trimmed, client);
       let targetChannelId = existingChannel?.id ?? trimmed;
@@ -121,6 +122,7 @@ export class YouTubeSubscriptionService {
     client: PoolClient,
   ): Promise<{ channelId: string; customUrl: string | null }> {
     logger.info("Seeding channel metadata before full sync", { channelId });
+    // 未有缓存时先拉取一次频道数据，保证订阅记录可关联到真实频道
     const channel = await this.youtubeDataApi.fetchChannelById(channelId);
     if (!channel) {
       logger.warn("Channel not found during metadata seed", { channelId });
@@ -179,6 +181,7 @@ export class YouTubeSubscriptionService {
       title: channel.title,
     });
 
+    // 通过 etag 判断资源是否变化，未变更则跳过写库
     const now = new Date();
     const channelChanged = await this.hasResourceChanged("channel", channel.id, channel.etag, client);
     if (channelChanged) {
@@ -257,6 +260,7 @@ export class YouTubeSubscriptionService {
     let videosProcessed = 0;
     const uniqueVideoIds = new Set<string>();
 
+    // 从各播放列表 + uploads 列表汇总视频，Set 去重避免重复请求
     for (const videoId of videoPlaylistMap.keys()) {
       uniqueVideoIds.add(videoId);
     }
@@ -311,6 +315,7 @@ export class YouTubeSubscriptionService {
   ): Promise<number> {
     let processed = 0;
     for (const video of videos) {
+      // etag 未变化时跳过写库，减少无效更新
       const videoChanged = await this.hasResourceChanged("video", video.id, video.etag, client);
       if (!videoChanged) {
         logger.debug("Video etag unchanged, skipping sync", { videoId: video.id });
@@ -360,6 +365,7 @@ export class YouTubeSubscriptionService {
     timestamp: Date,
     client: PoolClient,
   ): Promise<void> {
+    // 置顶评论失败不影响主流程，记录告警即可
     let topComment: Awaited<ReturnType<YouTubeDataApi["fetchTopCommentByVideo"]>>;
     try {
       topComment = await this.youtubeDataApi.fetchTopCommentByVideo(video.id, {

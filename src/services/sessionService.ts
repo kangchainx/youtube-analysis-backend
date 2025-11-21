@@ -49,6 +49,7 @@ export class SessionService {
     session: SessionRecord;
     token: string;
   }> {
+    // 先落库 session + Google 凭据，再基于 sid 生成可验证的 JWT
     const now = new Date();
     const sessionId = randomUUID();
 
@@ -105,6 +106,7 @@ export class SessionService {
 
   async verifyToken(token: string): Promise<SessionRecord> {
     try {
+      // 只信任包含 sid 的签名 token，避免伪造
       const payload = jwt.verify(
         token,
         this.config.jwtSecret,
@@ -117,6 +119,7 @@ export class SessionService {
         });
       }
 
+      // 从数据库拉取最新会话，确保服务器端注销后 token 失效
       const session = await this.fetchSessionById(payload.sid);
       if (!session) {
         throw new AppError("Session expired or invalid", {

@@ -7,6 +7,7 @@ type QueryParams = Record<string, unknown>;
 
 export class YouTubeAnalyticsApi {
   async queryReports(params: QueryParams, accessToken: string): Promise<unknown> {
+    // 将前端查询参数透传给 Analytics API，维持查询的灵活性
     const url = this.buildUrl("reports", params);
 
     const response = await fetch(url.toString(), {

@@ -214,6 +214,7 @@ export class YouTubeDataApi {
   constructor(private readonly apiKey: string) {}
 
   async fetchChannelByHandle(handle: string): Promise<YouTubeChannelDetails | null> {
+    // 统一补全 @ 前缀，兼容用户输入
     const normalizedHandle = handle.startsWith("@") ? handle : `@${handle}`;
     const url = this.buildUrl("channels", {
       part: "snippet,statistics",
@@ -258,6 +259,7 @@ export class YouTubeDataApi {
     let pageToken: string | undefined;
 
     do {
+      // 分页逐批拉取，避免超过 API 限制
       const url = this.buildUrl("playlists", {
         part: "snippet,contentDetails",
         channelId,
@@ -294,6 +296,7 @@ export class YouTubeDataApi {
     let pageToken: string | undefined;
 
     do {
+      // 只取 contentDetails.videoId，用更小的 fields 减少响应体
       const url = this.buildUrl("playlistItems", {
         part: "contentDetails",
         playlistId,
@@ -323,6 +326,7 @@ export class YouTubeDataApi {
         continue;
       }
 
+      // YouTube API 单次最多 50 个 id，按批请求
       const url = this.buildUrl("videos", {
         part: "snippet,contentDetails,status,statistics",
         id: batch.join(","),
@@ -364,6 +368,7 @@ export class YouTubeDataApi {
           continue;
         }
 
+        // 忽略作者为当前频道本身的置顶评论
         if (excluded && details.authorChannelId && details.authorChannelId === excluded) {
           continue;
         }
@@ -393,6 +398,7 @@ export class YouTubeDataApi {
     try {
       response = await fetch(url.toString());
     } catch (error) {
+      // 网络不可用时转换为业务错误，便于上层捕获
       throw new AppError("无法连接到 YouTube Data API，请稍后再试", {
         statusCode: 502,
         code: "YOUTUBE_API_UNREACHABLE",

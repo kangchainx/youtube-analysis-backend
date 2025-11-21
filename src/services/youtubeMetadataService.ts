@@ -354,6 +354,7 @@ export class YouTubeMetadataService {
   constructor(private readonly pool: Pool) {}
 
   async runInTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
+    // 统一事务封装，确保调用方出现异常后自动回滚
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -670,6 +671,7 @@ export class YouTubeMetadataService {
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_VIDEO_LIMIT, 1), MAX_VIDEO_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
     const includeTopComment = options?.includeTopComment ?? false;
+    // 按需拼接置顶评论字段，避免默认查询带来额外 JOIN
     const topCommentSelect = includeTopComment
       ? `,
          top.video_id AS top_comment_video_id,
@@ -734,6 +736,7 @@ export class YouTubeMetadataService {
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_VIDEO_LIMIT, 1), MAX_VIDEO_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
     const includeTopComment = options?.includeTopComment ?? false;
+    // 复用 channel 查询的可选置顶评论逻辑
     const topCommentSelect = includeTopComment
       ? `,
          top.video_id AS top_comment_video_id,

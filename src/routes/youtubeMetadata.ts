@@ -13,6 +13,7 @@ export const youtubeMetadataRouter = Router();
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
+// 该路由下所有接口都要求已登录
 youtubeMetadataRouter.use(requireAuth);
 
 youtubeMetadataRouter.post("/subscribe", async (req, res, next) => {
@@ -36,6 +37,7 @@ youtubeMetadataRouter.post("/subscribe", async (req, res, next) => {
     const candidate = (record.channel_id ?? record.channelId) as unknown;
     const rawChannelId = Array.isArray(candidate) ? candidate[0] : candidate;
 
+    // 支持 snake/camel 两种风格，取第一个 channelId
     if (typeof rawChannelId !== "string" || rawChannelId.trim().length === 0) {
       throw new AppError("channel_id 必须是非空字符串", {
         statusCode: 400,
@@ -350,6 +352,7 @@ function parsePagination(
   const limitValue = normalizeQueryValue(rawLimit);
   const offsetValue = normalizeQueryValue(rawOffset);
 
+  // 统一分页参数并限制上限，避免单次查询过大
   let limit = DEFAULT_LIMIT;
   if (limitValue !== undefined) {
     const parsed = Number.parseInt(limitValue, 10);

@@ -5,6 +5,7 @@ import { extractSessionToken } from "../utils/sessionToken";
 
 export const requireAuth: RequestHandler = async (req, _res, next) => {
   try {
+    // 统一从 cookie/Authorization 读取 session token，缺失直接拦截
     const token = extractSessionToken(req);
     if (!token) {
       throw new AppError("Authentication required", {
@@ -13,6 +14,7 @@ export const requireAuth: RequestHandler = async (req, _res, next) => {
       });
     }
 
+    // 解析并验证会话，写入请求上下文供后续路由使用
     const session = await sessionService.verifyToken(token);
     req.authSession = session;
     req.currentUser = session.user;

@@ -67,6 +67,7 @@ export class SubscribedChannelService {
   ): Promise<UserSubscribedChannel[]> {
     const { limit, offset, filters } = options;
 
+    // 动态组装过滤条件，按需追加参数以避免 SQL 注入
     const whereClauses = ["sci.user_id = $1"];
     const values: unknown[] = [userId];
 

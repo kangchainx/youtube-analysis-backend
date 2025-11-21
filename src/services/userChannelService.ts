@@ -63,6 +63,7 @@ export class UserChannelService {
   private async replaceUserChannels(userId: string, channels: ChannelSummary[]): Promise<void> {
     const client = await this.pool.connect();
     try {
+      // 先清空后批量插入，保证频道列表与最新 OAuth 查询结果一致
       await client.query("BEGIN");
       await client.query(`DELETE FROM users_channels WHERE user_id = $1`, [userId]);
 

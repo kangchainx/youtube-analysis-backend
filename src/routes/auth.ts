@@ -24,6 +24,7 @@ export const authRouter = Router();
 function parseAuthorizationOptionsFromBody(
   body: unknown,
 ): AuthorizationUrlOptions {
+  // 只挑选白名单字段，避免前端误传参数污染 OAuth 请求
   if (!body || typeof body !== "object") {
     return {};
   }
@@ -136,6 +137,7 @@ function buildLocalAuthTokens(user: User): GoogleTokens {
 
 authRouter.post("/register", async (req, res, next) => {
   try {
+    // 严格校验注册参数，尽早拦截脏数据
     if (!req.body || typeof req.body !== "object") {
       throw new AppError("Invalid request body", {
         statusCode: 400,
@@ -216,6 +218,7 @@ authRouter.post("/register", async (req, res, next) => {
 
 authRouter.post("/login/password", async (req, res, next) => {
   try {
+    // 保证 body 结构正确后再做密码对比
     if (!req.body || typeof req.body !== "object") {
       throw new AppError("Invalid request body", {
         statusCode: 400,
@@ -260,6 +263,7 @@ authRouter.post("/login/password", async (req, res, next) => {
       });
     }
 
+    // 登录成功后生成本地 JWT 并落地 session
     const tokens = buildLocalAuthTokens(lookup.user);
     const { token } = await sessionService.createSession(lookup.user, tokens);
 
@@ -315,6 +319,7 @@ authRouter.post("/google/callback", async (req, res, next) => {
       });
     }
 
+    // 与 Google 交换授权码并同步频道、用户、会话
     const { tokens, profile } = await googleOAuthService.exchangeCodeForTokens(code);
     const channelSummaries = await youtubeChannelService.fetchOwnedAndManagedChannels(
       tokens.accessToken,
@@ -369,6 +374,7 @@ authRouter.post("/logout", async (req, res, next) => {
       normalizeRevokeFlag(req.body?.revoke) ||
       normalizeRevokeFlag(req.query.revoke);
 
+    // 若用户要求撤销，将刷新/访问令牌同时吊销
     if (shouldRevoke) {
       const revokeToken =
         session.tokens.refreshToken ?? session.tokens.accessToken;

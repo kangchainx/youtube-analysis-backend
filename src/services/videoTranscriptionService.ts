@@ -181,6 +181,7 @@ export class VideoTranscriptionService {
   async startTranscriptionTask(
     params: StartVideoTranscriptionParams,
   ): Promise<StartVideoTranscriptionResult> {
+    // 先触发远端 Python 转写任务，拿到 taskId 后落库以便追踪
     const remote = await this.triggerRemoteTranscription(params);
     const taskRecordId = randomUUID();
     const now = new Date();
@@ -210,6 +211,7 @@ export class VideoTranscriptionService {
       ],
     );
 
+    // 后台异步监听任务状态，不阻塞创建接口响应
     void this.monitorTask({
       taskId: remote.taskId,
       taskRecordId,
@@ -722,6 +724,7 @@ export class VideoTranscriptionService {
         : null;
 
     if (normalizedStatus === "completed") {
+      // 任务完成后优先用 SSE 携带的文件列表，不存在则兜底拉取一次
       const files =
         event.files && event.files.length > 0
           ? event.files
