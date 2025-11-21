@@ -321,9 +321,7 @@ authRouter.post("/google/callback", async (req, res, next) => {
 
     // 与 Google 交换授权码并同步频道、用户、会话
     const { tokens, profile } = await googleOAuthService.exchangeCodeForTokens(code);
-    const channelSummaries = await youtubeChannelService.fetchOwnedAndManagedChannels(
-      tokens.accessToken,
-    );
+    const channelSummaries = [];
     console.log("[auth/google/callback] access_token:", tokens.accessToken);
 
     const user = await userService.findOrCreateFromGoogleProfile(profile);
