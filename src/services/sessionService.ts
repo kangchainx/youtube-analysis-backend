@@ -100,6 +100,32 @@ export class SessionService {
     return { session, token };
   }
 
+  async updateSessionTokens(sessionId: string, tokens: GoogleTokens): Promise<void> {
+    const now = new Date();
+
+    await this.pool.query(
+      `UPDATE sessions
+         SET access_token = $2,
+             refresh_token = $3,
+             id_token = $4,
+             scope = $5,
+             token_type = $6,
+             expiry_date = $7,
+             updated_at = $8
+       WHERE id = $1`,
+      [
+        sessionId,
+        tokens.accessToken,
+        tokens.refreshToken ?? null,
+        tokens.idToken,
+        tokens.scope ?? null,
+        tokens.tokenType ?? null,
+        tokens.expiryDate ? new Date(tokens.expiryDate) : null,
+        now,
+      ],
+    );
+  }
+
   async invalidate(sessionId: string): Promise<void> {
     await this.pool.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
   }

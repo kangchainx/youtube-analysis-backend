@@ -103,6 +103,36 @@ export class GoogleOAuthService {
     };
   }
 
+  async refreshAccessToken(
+    refreshToken: string,
+    fallbackIdToken?: string,
+  ): Promise<GoogleTokens> {
+    this.client.setCredentials({ refresh_token: refreshToken });
+    const { credentials } = await this.client.refreshAccessToken();
+
+    if (!credentials.access_token) {
+      throw new Error("Google refresh response is missing access_token");
+    }
+
+    const idToken =
+      credentials.id_token ?? fallbackIdToken ?? (() => {
+        throw new Error("Google refresh response is missing id_token and no fallback provided");
+      })();
+
+    const normalized: GoogleTokens = {
+      accessToken: credentials.access_token,
+      idToken,
+      refreshToken: credentials.refresh_token ?? refreshToken,
+      ...(credentials.scope ? { scope: credentials.scope } : {}),
+      ...(typeof credentials.expiry_date === "number"
+        ? { expiryDate: credentials.expiry_date }
+        : {}),
+      ...(credentials.token_type ? { tokenType: credentials.token_type } : {}),
+    };
+
+    return normalized;
+  }
+
   async verifyIdToken(idToken: string): Promise<GoogleUserProfile> {
     const loginTicket = await this.client.verifyIdToken({
       idToken,
