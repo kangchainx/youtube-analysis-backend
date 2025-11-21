@@ -12,6 +12,9 @@ interface UserChannelRow {
   subscribercount: number | null;
   hiddensubscribercount: boolean | null;
   videocount: number | null;
+  thumbnails_defult_url: string | null;
+  country: string | null;
+  banner_external_url: string | null;
   published_at: Date | null;
 }
 
@@ -40,6 +43,9 @@ export class UserChannelService {
               subscriberCount,
               hiddenSubscriberCount,
               videoCount,
+              thumbnails_defult_url,
+              country,
+              banner_external_url,
               published_at
        FROM users_channels
        WHERE user_id = $1`,
@@ -56,6 +62,9 @@ export class UserChannelService {
       subscriberCount: row.subscribercount ?? null,
       hiddenSubscriberCount: row.hiddensubscribercount ?? null,
       videoCount: row.videocount ?? null,
+      thumbnailsDefaultUrl: row.thumbnails_defult_url,
+      country: row.country,
+      bannerExternalUrl: row.banner_external_url,
       publishedAt: row.published_at ? row.published_at.toISOString() : null,
     }));
   }
@@ -84,9 +93,12 @@ export class UserChannelService {
              subscriberCount,
              hiddenSubscriberCount,
              videoCount,
+             thumbnails_defult_url,
+             country,
+             banner_external_url,
              published_at,
              created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())`,
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())`,
           [
             randomUUID(),
             userId,
@@ -99,6 +111,9 @@ export class UserChannelService {
             channel.subscriberCount ?? 0,
             channel.hiddenSubscriberCount ?? false,
             channel.videoCount ?? 0,
+            channel.thumbnailsDefaultUrl,
+            channel.country,
+            channel.bannerExternalUrl,
             publishedAt,
           ],
         );

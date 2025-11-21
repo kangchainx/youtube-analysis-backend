@@ -11,6 +11,9 @@ export interface ChannelSummary {
   subscriberCount: number | null;
   hiddenSubscriberCount: boolean | null;
   videoCount: number | null;
+  thumbnailsDefaultUrl: string | null;
+  country: string | null;
+  bannerExternalUrl: string | null;
 }
 
 interface ChannelItem {
@@ -20,12 +23,24 @@ interface ChannelItem {
     customUrl?: string;
     description?: string;
     publishedAt?: string;
+    country?: string;
+    thumbnails?: {
+      default?: { url?: string };
+    };
   };
   statistics?: {
     viewCount?: string;
     subscriberCount?: string;
     hiddenSubscriberCount?: boolean;
     videoCount?: string;
+  };
+  brandingSettings?: {
+    channel?: {
+      country?: string;
+    };
+    image?: {
+      bannerExternalUrl?: string;
+    };
   };
 }
 
@@ -50,7 +65,7 @@ export class YouTubeChannelService {
 
     do {
       const url = new URL("https://www.googleapis.com/youtube/v3/channels");
-      url.searchParams.set("part", "id,snippet,statistics");
+      url.searchParams.set("part", "id,snippet,statistics,brandingSettings");
       url.searchParams.set(mode === "mine" ? "mine" : "managedByMe", "true");
       if (pageToken) {
         url.searchParams.set("pageToken", pageToken);
@@ -86,6 +101,12 @@ export class YouTubeChannelService {
           continue;
         }
         const statistics = item.statistics;
+        const thumbnailsDefaultUrl = item.snippet?.thumbnails?.default?.url ?? null;
+        const country =
+          item.brandingSettings?.channel?.country ??
+          item.snippet?.country ??
+          null;
+        const bannerExternalUrl = item.brandingSettings?.image?.bannerExternalUrl ?? null;
         summaries.push({
           channelId: item.id,
           channelName: item.snippet?.title ?? null,
@@ -96,6 +117,9 @@ export class YouTubeChannelService {
           subscriberCount: parseNumber(statistics?.subscriberCount),
           hiddenSubscriberCount: statistics?.hiddenSubscriberCount ?? null,
           videoCount: parseNumber(statistics?.videoCount),
+          thumbnailsDefaultUrl,
+          country,
+          bannerExternalUrl,
           publishedAt: item.snippet?.publishedAt ?? null,
         });
       }
