@@ -13,6 +13,7 @@ export interface AppConfig {
   youtube: YouTubeConfig;
   spotlight: SpotlightConfig;
   videoTranscription: VideoTranscriptionConfig;
+  videoTranslate: VideoTranslateConfig;
   objectStorage: ObjectStorageConfig;
   logging: LoggingConfig;
 }
@@ -35,6 +36,15 @@ export interface SpotlightConfig {
 export interface VideoTranscriptionConfig {
   baseUrl: string;
   streamTimeoutMs: number;
+}
+
+export interface VideoTranslateConfig {
+  baseUrl: string;
+  streamTimeoutMs: number;
+  defaultModel: string;
+  defaultDevice: string;
+  defaultComputeType: string;
+  sharedSecret: string;
 }
 
 export interface ObjectStorageConfig {
@@ -234,6 +244,22 @@ function loadVideoTranscriptionConfig(): VideoTranscriptionConfig {
   };
 }
 
+function loadVideoTranslateConfig(): VideoTranslateConfig {
+  return {
+    baseUrl: requireEnv("VIDEO_TRANSLATE_SERVICE_BASE_URL"),
+    streamTimeoutMs: parsePositiveInteger(
+      process.env.VIDEO_TRANSLATE_STREAM_TIMEOUT_MS,
+      15 * 60 * 1000,
+      "VIDEO_TRANSLATE_STREAM_TIMEOUT_MS",
+    ),
+    defaultModel: process.env.VIDEO_TRANSLATE_DEFAULT_MODEL ?? "tiny",
+    defaultDevice: process.env.VIDEO_TRANSLATE_DEFAULT_DEVICE ?? "cpu",
+    defaultComputeType:
+      process.env.VIDEO_TRANSLATE_DEFAULT_COMPUTE_TYPE ?? "int8",
+    sharedSecret: requireEnv("VIDEO_TRANSLATE_SHARED_SECRET"),
+  };
+}
+
 function loadObjectStorageConfig(): ObjectStorageConfig {
   const baseConfig: ObjectStorageConfig = {
     endPoint: requireEnv("MINIO_ENDPOINT"),
@@ -293,6 +319,7 @@ export function loadConfig(): AppConfig {
     youtube: loadYouTubeConfig(),
     spotlight: loadSpotlightConfig(),
     videoTranscription: loadVideoTranscriptionConfig(),
+    videoTranslate: loadVideoTranslateConfig(),
     objectStorage: loadObjectStorageConfig(),
     logging: loadLoggingConfig(),
   };
