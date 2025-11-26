@@ -41,6 +41,7 @@ videoTranscriptionRouter.post("/", async (req, res, next) => {
   }
 });
 
+// GET /video-transcription/tasks：分页查询当前用户的转写任务列表，可按状态过滤
 videoTranscriptionRouter.get("/tasks", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -85,6 +86,7 @@ videoTranscriptionRouter.get("/tasks", async (req, res, next) => {
   }
 });
 
+// GET /video-transcription/tasks/details：分页返回任务列表并附带每个任务的细节
 videoTranscriptionRouter.get("/tasks/details", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -129,6 +131,7 @@ videoTranscriptionRouter.get("/tasks/details", async (req, res, next) => {
   }
 });
 
+// GET /video-transcription/task：按 task_id 查询单个转写任务详情，支持附带状态过滤
 videoTranscriptionRouter.get("/task", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -166,6 +169,7 @@ videoTranscriptionRouter.get("/task", async (req, res, next) => {
   }
 });
 
+// GET /video-transcription/task/stream：SSE 推送指定任务的状态更新，包含初始快照与心跳
 videoTranscriptionRouter.get("/task/stream", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -250,6 +254,7 @@ videoTranscriptionRouter.get("/task/stream", async (req, res, next) => {
   }
 });
 
+// GET /video-transcription/details：根据 vtt_id 获取转写明细列表
 videoTranscriptionRouter.get("/details", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -276,6 +281,7 @@ videoTranscriptionRouter.get("/details", async (req, res, next) => {
   }
 });
 
+// GET /video-transcription/download-url：为导出的文件生成带签名的下载链接
 videoTranscriptionRouter.get("/download-url", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;

@@ -8,6 +8,7 @@ export const notificationsRouter = Router();
 
 notificationsRouter.use(requireAuth);
 
+// GET /notifications：分页获取当前用户的通知列表，可按消息状态过滤
 notificationsRouter.get("/", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -58,6 +59,7 @@ notificationsRouter.get("/", async (req, res, next) => {
   }
 });
 
+// POST /notifications/:id/mark-read：将指定通知标记为已读
 notificationsRouter.post("/:id/mark-read", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -94,6 +96,7 @@ notificationsRouter.post("/:id/mark-read", async (req, res, next) => {
   }
 });
 
+// POST /notifications/mark-all-read：批量将当前用户的通知全部设为已读
 notificationsRouter.post("/mark-all-read", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -113,6 +116,7 @@ notificationsRouter.post("/mark-all-read", async (req, res, next) => {
   }
 });
 
+// GET /notifications/stream：SSE 长连接推送实时通知与心跳
 notificationsRouter.get("/stream", (req, res, next) => {
   try {
     const currentUser = req.currentUser;

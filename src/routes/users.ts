@@ -11,6 +11,7 @@ export const usersRouter = Router();
 
 usersRouter.use(requireAuth);
 
+// GET /users/me：返回当前登录用户的基本信息
 usersRouter.get("/me", (req, res, next) => {
   try {
     const session = req.authSession;
@@ -34,6 +35,7 @@ usersRouter.get("/me", (req, res, next) => {
   }
 });
 
+// PATCH /users/me：更新个人资料（昵称、头像、邮箱、密码），需要已登录
 usersRouter.patch("/me", async (req, res, next) => {
   try {
     const session = req.authSession;
@@ -245,6 +247,7 @@ usersRouter.patch("/me", async (req, res, next) => {
   }
 });
 
+// POST /users/me/password：单独修改密码，校验当前密码并写入新 hash
 usersRouter.post("/me/password", async (req, res, next) => {
   try {
     const session = req.authSession;

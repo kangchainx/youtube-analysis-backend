@@ -16,6 +16,7 @@ const MAX_LIMIT = 100;
 // 该路由下所有接口都要求已登录
 youtubeMetadataRouter.use(requireAuth);
 
+// POST /youtube/subscribe：订阅指定频道，支持 channel_id 或 channelId
 youtubeMetadataRouter.post("/subscribe", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -55,6 +56,7 @@ youtubeMetadataRouter.post("/subscribe", async (req, res, next) => {
   }
 });
 
+// DELETE /youtube/subscribe：退订指定频道
 youtubeMetadataRouter.delete("/subscribe", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -92,6 +94,7 @@ youtubeMetadataRouter.delete("/subscribe", async (req, res, next) => {
   }
 });
 
+// GET /youtube/channels：获取全部已同步的频道列表
 youtubeMetadataRouter.get("/channels", async (_req, res, next) => {
   try {
     const channels = await youtubeMetadataService.listChannels();
@@ -101,6 +104,7 @@ youtubeMetadataRouter.get("/channels", async (_req, res, next) => {
   }
 });
 
+// GET /youtube/channels/custom/:customUrl：通过自定义域名查询频道
 youtubeMetadataRouter.get("/channels/custom/:customUrl", async (req, res, next) => {
   try {
     const customUrl = req.params.customUrl?.trim();
@@ -125,6 +129,7 @@ youtubeMetadataRouter.get("/channels/custom/:customUrl", async (req, res, next) 
   }
 });
 
+// GET /youtube/channels/:channelId：根据频道 ID 查询频道信息
 youtubeMetadataRouter.get("/channels/:channelId", async (req, res, next) => {
   try {
     const channelId = req.params.channelId?.trim();
@@ -149,6 +154,7 @@ youtubeMetadataRouter.get("/channels/:channelId", async (req, res, next) => {
   }
 });
 
+// GET /youtube/channels/:channelId/playlists：列出频道下的播放列表
 youtubeMetadataRouter.get(
   "/channels/:channelId/playlists",
   async (req, res, next) => {
@@ -193,10 +199,11 @@ youtubeMetadataRouter.get(
       res.json({ data: videos, pagination: { limit, offset }, meta: { includeTopComment } });
     } catch (error) {
       next(error);
-    }
-  },
+      }
+    },
 );
 
+// GET /youtube/playlists/:playlistId：获取单个播放列表详情
 youtubeMetadataRouter.get("/playlists/:playlistId", async (req, res, next) => {
   try {
     const playlistId = req.params.playlistId?.trim();
@@ -221,6 +228,7 @@ youtubeMetadataRouter.get("/playlists/:playlistId", async (req, res, next) => {
   }
 });
 
+// GET /youtube/playlists/:playlistId/videos：列出播放列表内的视频，支持分页
 youtubeMetadataRouter.get(
   "/playlists/:playlistId/videos",
   async (req, res, next) => {
@@ -242,9 +250,10 @@ youtubeMetadataRouter.get(
     } catch (error) {
       next(error);
     }
-  },
+    },
 );
 
+// GET /youtube/videos/:videoId：查询单个视频详情
 youtubeMetadataRouter.get("/videos/:videoId", async (req, res, next) => {
   try {
     const videoId = req.params.videoId?.trim();
@@ -269,6 +278,7 @@ youtubeMetadataRouter.get("/videos/:videoId", async (req, res, next) => {
   }
 });
 
+// GET /youtube/subscriptions：分页获取当前用户订阅列表，可按频道信息筛选
 youtubeMetadataRouter.get("/subscriptions", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
@@ -316,6 +326,7 @@ youtubeMetadataRouter.get("/subscriptions", async (req, res, next) => {
   }
 });
 
+// GET /youtube/subscription-status：查询当前用户是否已订阅指定频道
 youtubeMetadataRouter.get("/subscription-status", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;
