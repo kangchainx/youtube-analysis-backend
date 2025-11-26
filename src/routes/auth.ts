@@ -135,6 +135,7 @@ function buildLocalAuthTokens(user: User): GoogleTokens {
   return tokens;
 }
 
+// POST /auth/register：创建本地账号并存储密码哈希
 authRouter.post("/register", async (req, res, next) => {
   try {
     // 严格校验注册参数，尽早拦截脏数据
@@ -216,6 +217,7 @@ authRouter.post("/register", async (req, res, next) => {
   }
 });
 
+// POST /auth/login/password：本地邮箱+密码登录，发放会话与 JWT
 authRouter.post("/login/password", async (req, res, next) => {
   try {
     // 保证 body 结构正确后再做密码对比
@@ -289,6 +291,7 @@ authRouter.post("/login/password", async (req, res, next) => {
   }
 });
 
+// POST /auth/google/init：生成 Google OAuth 授权地址并返回给前端
 authRouter.post("/google/init", (req, res, next) => {
   try {
     const options = parseAuthorizationOptionsFromBody(req.body);
@@ -304,6 +307,7 @@ authRouter.post("/google/init", (req, res, next) => {
   }
 });
 
+// POST /auth/google/callback：处理 Google 回调，换取令牌后创建/更新用户及会话
 authRouter.post("/google/callback", async (req, res, next) => {
   try {
     const code =
@@ -356,6 +360,7 @@ authRouter.post("/google/callback", async (req, res, next) => {
   }
 });
 
+// POST /auth/logout：退出登录，可选同时吊销 Google token
 authRouter.post("/logout", async (req, res, next) => {
   try {
     const token = extractSessionToken(req);

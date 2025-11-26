@@ -14,6 +14,7 @@ export const youtubeAnalyticsRouter = Router();
 
 youtubeAnalyticsRouter.use(requireAuth);
 
+// GET /youtube/analytics/reports：使用用户的 Google token 调用 YouTube Analytics 报表接口
 youtubeAnalyticsRouter.get("/reports", async (req, res, next) => {
   try {
     const session = req.authSession;
@@ -37,6 +38,7 @@ youtubeAnalyticsRouter.get("/reports", async (req, res, next) => {
   }
 });
 
+// GET /youtube/analytics/channels/mine：返回当前登录用户可访问的 YouTube 频道列表
 youtubeAnalyticsRouter.get("/channels/mine", async (req, res, next) => {
   try {
     const currentUser = req.currentUser;

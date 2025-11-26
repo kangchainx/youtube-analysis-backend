@@ -5,6 +5,7 @@ import { SessionService } from "./sessionService";
 import { UserService } from "./userService";
 import { SpotlightChannelService } from "./spotlightChannelService";
 import { VideoTranscriptionService } from "./videoTranscriptionService";
+import { VideoTranslateService } from "./videoTranslateService";
 import { YouTubeDataApi } from "./youtubeDataApi";
 import { YouTubeAnalyticsApi } from "./youtubeAnalyticsApi";
 import { ObjectStorageService } from "./objectStorageService";
@@ -23,6 +24,11 @@ export const notificationService = new NotificationService(pool);
 export const videoTranscriptionService = new VideoTranscriptionService(
   pool,
   config.videoTranscription,
+  notificationService,
+);
+export const videoTranslateService = new VideoTranslateService(
+  config.videoTranslate,
+  pool,
   notificationService,
 );
 export const youtubeDataApi = new YouTubeDataApi(config.youtube.apiKey);

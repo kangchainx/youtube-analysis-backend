@@ -31,6 +31,7 @@ export const exportRouter = Router();
 
 exportRouter.use(requireAuth);
 
+// POST /export/videos：导出前端传入的视频列表，支持 csv 或 Excel 并可附带热评
 exportRouter.post("/videos", async (req, res, next) => {
   try {
     const formatParam =

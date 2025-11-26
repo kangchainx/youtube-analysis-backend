@@ -9,6 +9,7 @@ spotlightChannelsRouter.use(requireAuth);
 
 const CACHE_TTL_SECONDS = 300;
 
+// GET /spotlight-channels：获取精选频道列表，带 ETag 缓存与 5 分钟缓存头
 spotlightChannelsRouter.get("/", async (req, res, next) => {
   try {
     const channels = await spotlightChannelService.listActiveChannels();
