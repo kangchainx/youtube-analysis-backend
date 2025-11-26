@@ -1,195 +1,94 @@
 # YouTube Analysis Backend
 
-Node.js REST API service designed to pair with a React, TypeScript, and Vite front-end for YouTube analytics features.
+基于 Node.js + TypeScript 的后端服务，为 YouTube 数据分析与视频转写应用提供 API。后端内置用户认证、通知推送、对象存储、数据库持久化，并通过签名鉴权安全地代理 Python fast‑whisper 转写服务。
 
-The backend provides Google OAuth 2.0 single sign-on, persists user and session data in PostgreSQL, and exposes a video export service that produces CSV or Excel files for download.
+> 如果这个项目对你有帮助，请点亮一个 ⭐️，你的支持是我持续改进的动力。
 
-如果你喜欢这个项目或者它对你有帮助，请点亮一个 star，每一个 star 对我意义非凡。
+## 功能亮点
+- **安全认证**：Google OAuth 2.0 + JWT 会话，统一的登录态中间件。
+- **视频转写**：对接 Python fast‑whisper，支持任务创建、状态查询、SSE 实时进度、结果下载（签名鉴权头防止前端直连）。
+- **通知中心**：转写任务完成/失败自动生成未读通知，支持 SSE 推送与批量/单条已读。
+- **YouTube 数据**：拉取并持久化频道、视频、播放列表数据，支持 Spotlight/订阅同步任务。
+- **对象存储**：MinIO/S3 兼容的结果文件签名下载。
+- **完善日志**：Winston 按文件/控制台分级输出，便于生产排障。
 
-If you enjoy this project or find it helpful, please consider giving it a star; each one means a great deal to me.
-
-## Getting Started
-
+## 快速开始
 ```bash
 npm install
-npm run dev
+cp .env.example .env   # 填好必须的密钥/连接信息
+npm run dev            # http://localhost:5001
 ```
 
-By default the server listens on [http://localhost:5001](http://localhost:5001). Update `.env` based on `.env.example` if you need custom values.
-
-## Docker
-
-Build the production image from the repository root:
-
+Docker 构建与运行：
 ```bash
 docker build -t youtube-analysis-backend .
-```
-
-Run the container in the background (exposes port 5001 by default) and load environment variables from `.env`:
-
-```bash
 docker run -d --name youtube-analysis-backend -p 5001:5001 --env-file .env youtube-analysis-backend
 ```
 
-Override configuration by adjusting the port mapping (e.g. `-p 8080:5001`) or by appending `-e KEY=value` flags to supply alternate secrets and runtime values when needed.
+## 关键接口（全部前缀 `/api`）
+- **健康检查**：`GET /health`
+- **认证**：`/auth/*`（Google OAuth、登录、登出）
+- **视频转写（需登录）**：前缀 `/video-translate`
+  - `POST /video-translate/tasks` 创建任务
+  - `GET /video-translate/tasks` / `tasks/details` 分页查询（含文件明细）
+  - `GET /video-translate/tasks/:taskId` 状态与文件列表
+  - `GET /video-translate/tasks/:taskId/stream` SSE 实时进度
+  - `GET /video-translate/tasks/:taskId/download-url` 获取签名下载地址
+  - `GET /video-translate/status` 转写服务健康检查
+- **通知（需登录）**：`GET /notifications`、`POST /notifications/:id/mark-read`、`POST /notifications/mark-all-read`、`GET /notifications/stream`
+- **YouTube 数据**：`/youtube/*`（频道、视频、播放列表、订阅同步等）
+- **导出**：`/export/*`（CSV/Excel）
 
-### Environment variables
+## 环境变量说明
+复制 `.env.example` 后按需填写，核心项：
 
-Copy `.env.example` to `.env` and adjust the following keys as needed:
+### 基础 & 认证
+- `PORT`：服务端口（默认 5001）
+- `CLIENT_ORIGIN`：允许的前端来源（CORS）
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` / `GOOGLE_AUTH_SCOPES`
+- `JWT_SECRET` / `JWT_EXPIRES_IN`
+- `SESSION_COOKIE_NAME` / `SESSION_COOKIE_SECURE` / `SESSION_COOKIE_SAMESITE`
 
-- `PORT` — Optional HTTP port (defaults to 5001).
-- `CLIENT_ORIGIN` — Front-end origin allowed via CORS (defaults to `http://localhost:5173`).
-- `GOOGLE_CLIENT_ID` — OAuth 2.0 client ID from Google Cloud.
-- `GOOGLE_CLIENT_SECRET` — OAuth 2.0 client secret.
-- `GOOGLE_REDIRECT_URI` — Callback URL registered in Google (defaults to `http://localhost:5001/api/auth/google/callback`).
-- `GOOGLE_AUTH_SCOPES` — Comma separated scopes (defaults to `openid,profile,email`).
-- `JWT_SECRET` — Random string used to sign session JWTs (generate a strong secret!).
-- `JWT_EXPIRES_IN` — Lifetime for issued session JWTs (e.g. `7d`).
-- `SESSION_COOKIE_NAME` — Name for the HttpOnly session cookie (defaults to `ya_session`).
-- `SESSION_COOKIE_SECURE` — `true` to issue secure cookies (recommended in production).
-- `SESSION_COOKIE_SAMESITE` — Cookie same-site policy (`lax`/`strict`/`none`).
-- `SESSION_COOKIE_DOMAIN` — Optional cookie domain override for production.
-- `DB_HOST` — PostgreSQL host (defaults to `localhost`).
-- `DB_PORT` — PostgreSQL port (defaults to `5432`).
-- `DB_USER` — Database user.
-- `DB_PASSWORD` — Database password.
-- `DB_NAME` — Database name.
-- `LOG_LEVEL` — Base log level for Winston transports (defaults to `info`).
-- `LOG_CONSOLE_LEVEL` — Override console log level (defaults to `LOG_LEVEL`).
-- `LOG_FILE_LEVEL` — Override file log level (defaults to `LOG_LEVEL`).
-- `LOG_DIR` — Directory used for log files (defaults to `<project>/logs`).
-- `LOG_FILE_NAME` — File name for log output (defaults to `application.log`).
-- `LOG_MAX_SIZE_MB` — Max log file size before rotation in MB (defaults to `10`).
-- `LOG_MAX_FILES` — Number of rotated log files to keep (defaults to `5`).
+### 数据库 & 存储
+- `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME`
+- `MINIO_ENDPOINT` / `MINIO_PORT` / `MINIO_USE_SSL` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` / `MINIO_REGION` / `MINIO_PRESIGN_EXPIRY_SECONDS`
 
-### Available scripts
+### 视频转写（Python fast‑whisper 服务）
+- `VIDEO_TRANSLATE_SERVICE_BASE_URL`：Python 服务地址
+- `VIDEO_TRANSLATE_STREAM_TIMEOUT_MS`：SSE 超时（默认 15 分钟）
+- `VIDEO_TRANSLATE_DEFAULT_MODEL` / `VIDEO_TRANSLATE_DEFAULT_DEVICE` / `VIDEO_TRANSLATE_DEFAULT_COMPUTE_TYPE`：默认模型/设备/算力
+- `VIDEO_TRANSLATE_SHARED_SECRET`：Node 与 Python 共享的签名密钥（用于鉴权头 `X-Auth-*`）
 
-- `npm run dev` — start the development server with hot reload via `ts-node-dev`.
-- `npm run build` — type-check and emit production ready JavaScript into `dist/`.
-- `npm start` — run the compiled server from `dist/`.
-- `npm run sync:spotlight` / `npm run sync:spotlight:prod` — refresh spotlight channels locally or from the compiled build.
-- `npm run sync:subscriptions` / `npm run sync:subscriptions:prod` — run the subscribed-channel sync job once (same work the daily job performs at 00:00).
+### 其他
+- `YOUTUBE_API_KEY` / `SPOTLIGHT_CHANNEL_HANDLES`
+- 日志相关：`LOG_LEVEL` / `LOG_CONSOLE_LEVEL` / `LOG_FILE_LEVEL` / `LOG_DIR` / `LOG_FILE_NAME` / `LOG_MAX_SIZE_MB` / `LOG_MAX_FILES`
+- `ENABLE_FETCH_PROXY`：是否启用 fetch 代理
 
-The server automatically schedules a subscribed-channel maintenance job at **00:00 (server local time)** to refresh channel metadata, playlists, and videos for every entry in `subscribed_channel_info`. Use the scripts above whenever you need to trigger the job manually (e.g. after deploying a fix or populating new subscriptions).
+## 可用脚本
+- `npm run dev`：开发热重载
+- `npm run build`：编译到 `dist/`
+- `npm start`：运行编译产物
+- `npm run sync:spotlight` / `sync:spotlight:prod`：同步 Spotlight 频道
+- `npm run sync:subscriptions` / `sync:subscriptions:prod`：同步订阅频道
 
-## API Overview
-
-All routes are prefixed with `/api`.
-
-| Method | Route                    | Description                                                          |
-| ------ | ------------------------ | -------------------------------------------------------------------- |
-| GET    | `/health`                | Service availability info                                            |
-| GET    | `/videos`                | Example list endpoint                                                |
-| POST   | `/videos`                | Example create endpoint                                              |
-| GET    | `/videos/:id`            | Example detail endpoint                                              |
-| POST   | `/auth/google/init`      | Generate a Google OAuth authorization URL plus front-end metadata    |
-| POST   | `/auth/google/callback`  | Exchange Google authorization code, verify ID token, start a session |
-| POST   | `/auth/login/password`   | Authenticate with username/password and issue a session              |
-| POST   | `/auth/logout`           | Clear the active session, optionally revoke Google access            |
-| GET    | `/users/me`              | Return the authenticated user's profile                              |
-| PATCH  | `/users/me`              | Update name, email, avatar, or password for the authenticated user   |
-| POST   | `/export/videos?format=` | Export videos to CSV (`format=csv`) or Excel (`format=excel`)        |
-| POST   | `/youtube/subscribe`                  | Fetch a channel + playlists + videos from YouTube and persist them  |
-| GET    | `/youtube/channels`                     | List stored channel metadata plus aggregated statistics             |
-| GET    | `/youtube/channels/:channelId`          | Fetch a single channel with its stats                               |
-| GET    | `/youtube/channels/:channelId/playlists`| List playlists that belong to the channel                           |
-| GET    | `/youtube/channels/:channelId/videos`   | Paginated list of channel videos (includes statistics)              |
-| GET    | `/youtube/playlists/:playlistId`        | Fetch playlist metadata                                             |
-| GET    | `/youtube/playlists/:playlistId/videos` | Paginated list of videos inside a playlist                          |
-| GET    | `/youtube/videos/:videoId`              | Fetch a single video's metadata and statistics                      |
-| GET    | `/youtube/subscription-status?channel_id=` | Return whether the current user has subscribed to the channel    |
-
-`POST /api/youtube/subscribe` expects a JSON body `{ "channel_id": "UC..." }` (snake_case is preferred, `channelId` is also accepted). The backend fetches the channel profile, all playlists, and every video (plus statistics) via the YouTube Data API and stores the data into the corresponding `youtube_*` tables for later reads.
-
-Replace the sample video routes with your domain specific logic as you integrate with YouTube data sources.
-
-### Password-based authentication
-
-- `POST /api/auth/login/password` expects `{"username": string, "password": string}` and responds with the same payload shape as the Google callback (`user`, `token`, `scope`, `expiresIn`). The username currently maps to the stored user email (case-insensitive). On success the session cookie is set using the same configuration as Google sign-in. Invalid credentials return HTTP 401 with a readable `message`.
-- `PATCH /api/users/me` now accepts optional `name`, `email`, `avatar`, `password`, and (when updating the password) `currentPassword`. Unsubmitted fields remain unchanged. Password updates require at least 8 characters and, if a password is already set, the correct `currentPassword`. Email changes enforce uniqueness (case-insensitive) and must match a basic email format. Clearing the avatar can be done by sending `"avatar": null`.
-
-> **Note:** Default database credentials in `.env.example` target a local PostgreSQL instance; update them to match your environment and ensure suitable security for production.
-
-### Database schema
-
-Create the `users` and `sessions` tables (or adjust them to include the columns below) before starting the server. Add the `avatar_url` and `password_hash` columns if you already have a deployed database so profile photos and local passwords can be persisted:
-
-```sql
-ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
-```
-
-Example full DDL for a fresh install:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY,
-  google_id TEXT UNIQUE NOT NULL,
-  email TEXT NOT NULL,
-  display_name TEXT,
-  avatar_url TEXT,
-  password_hash TEXT,
-  created_at TIMESTAMPTZ NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-  id UUID PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT,
-  id_token TEXT NOT NULL,
-  scope TEXT,
-  token_type TEXT,
-  expiry_date TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
-
-CREATE TABLE IF NOT EXISTS spotlight_channels (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  handle TEXT UNIQUE NOT NULL,
-  channel_id TEXT,
-  title TEXT NOT NULL,
-  description TEXT,
-  avatar_url TEXT,
-  total_views NUMERIC,
-  total_subscribers NUMERIC,
-  order_index INTEGER,
-  is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  last_synced_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_spotlight_channels_active_order
-  ON spotlight_channels (order_index, updated_at DESC)
-  WHERE is_active = TRUE;
-```
-
-## Project Structure
-
+## 项目结构
 ```
 src/
-  app.ts              // Express app factory
-  server.ts           // Entry point for the HTTP server
-  config/env.ts       // Environment variable parsing
-  middleware/         // Common Express middlewares (errors, etc.)
-  models/user.ts      // Lightweight user model
-  models/youtube.ts   // YouTube metadata and statistics contracts
-  routes/auth.ts      // Google SSO endpoints
-  routes/export.ts    // Video export endpoints
-  routes/             // REST route definitions
-  routes/youtubeMetadata.ts // Read APIs for youtube_* tables
-  services/           // Auth, Google, session helpers
-  services/youtubeSubscriptionService.ts // Subscribe flow that syncs channels/playlists/videos
-  services/youtubeMetadataService.ts // Encapsulated queries for youtube_* tables
-  utils/logger.ts     // Winston logger configured for console + file output
-  utils/              // Shared utilities (time, errors)
+  app.ts                # Express 应用工厂
+  server.ts             # HTTP 入口
+  config/env.ts         # 环境变量解析
+  middleware/           # 鉴权、错误等中间件
+  routes/               # 路由（auth、notifications、video-translate、youtube 等）
+  services/             # 业务服务（session、YouTube、转写、通知等）
+  database/             # PG 连接池
+  utils/                # 工具（日志、错误、时间等）
 ```
 
-Feel free to extend this structure with services, repositories, or additional modules as requirements evolve.
+## 开发者须知
+- 所有业务接口默认前缀 `/api`，需登录的接口已统一挂载 `requireAuth`。
+- 视频转写调用 Python 服务时会自动附加签名头（`X-Auth-UserId`、`X-Auth-Timestamp`、`X-Auth-Nonce`、`X-Auth-Sign`），请确保 Python 端使用相同密钥与秒级时间戳校验。
+- 通知：转写任务完成/失败会自动写入通知表，并可通过 `GET /notifications` 或 SSE 获取。
+
+---
+
+如果你觉得这个项目有价值，请给个 ⭐️。也欢迎 Issue/PR，一起完善！
