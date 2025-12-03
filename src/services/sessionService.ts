@@ -6,6 +6,7 @@ import type { GoogleTokens } from "./googleOAuth";
 import type { ChannelSummary } from "./youtubeChannelService";
 import type { User } from "../models/user";
 import { AppError } from "../utils/appError";
+import { parseDurationToMs } from "../utils/time";
 
 export interface SessionRecord {
   id: string;
@@ -45,7 +46,11 @@ export class SessionService {
     private readonly pool: Pool,
   ) {}
 
-  async createSession(user: User, tokens: GoogleTokens): Promise<{
+  async createSession(
+    user: User,
+    tokens: GoogleTokens,
+    options?: { expiresInMs?: number },
+  ): Promise<{
     session: SessionRecord;
     token: string;
   }> {
@@ -96,7 +101,7 @@ export class SessionService {
       updatedAt: now.toISOString(),
     };
 
-    const token = this.signSessionJwt(session);
+    const token = this.signSessionJwt(session, options?.expiresInMs);
     return { session, token };
   }
 
@@ -207,14 +212,23 @@ export class SessionService {
     return mapSessionWithUserRow(row);
   }
 
-  private signSessionJwt(session: SessionRecord): string {
+  private signSessionJwt(session: SessionRecord, expiresInMs?: number): string {
     const payload: SessionJwtPayload = {
       sid: session.id,
       sub: session.user.id,
     };
 
     const options: SignOptions = {};
-    options.expiresIn = this.config.jwtExpiresIn as NonNullable<SignOptions["expiresIn"]>;
+    const normalizedExpiresInMs =
+      typeof expiresInMs === "number" && Number.isFinite(expiresInMs)
+        ? expiresInMs
+        : parseDurationToMs(this.config.jwtExpiresIn);
+
+    if (typeof normalizedExpiresInMs === "number" && normalizedExpiresInMs > 0) {
+      options.expiresIn = Math.max(1, Math.floor(normalizedExpiresInMs / 1000));
+    } else {
+      options.expiresIn = this.config.jwtExpiresIn as NonNullable<SignOptions["expiresIn"]>;
+    }
 
     return jwt.sign(payload, this.config.jwtSecret, options);
   }
