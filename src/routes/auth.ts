@@ -63,8 +63,25 @@ function parseAuthorizationOptionsFromBody(
   return options;
 }
 
-function cookieOptions(includeMaxAge = true): CookieOptions {
-  const maxAge = parseDurationToMs(config.session.jwtExpiresIn) ?? undefined;
+function resolveSessionMaxAgeMs(tokens?: GoogleTokens): number | undefined {
+  const configuredMs = parseDurationToMs(config.session.jwtExpiresIn);
+  const googleExpiresInMs =
+    typeof tokens?.expiryDate === "number" ? tokens.expiryDate - Date.now() : undefined;
+
+  // 当没有 refresh_token 时，使用 Google 返回的访问令牌寿命与配置寿命的较小值
+  if (!tokens?.refreshToken && typeof googleExpiresInMs === "number") {
+    const clampedGoogleMs = Math.max(googleExpiresInMs, 0);
+    if (typeof configuredMs === "number") {
+      return Math.min(configuredMs, clampedGoogleMs);
+    }
+    return clampedGoogleMs;
+  }
+
+  return configuredMs ?? googleExpiresInMs;
+}
+
+function cookieOptions(includeMaxAge = true, tokens?: GoogleTokens): CookieOptions {
+  const maxAge = resolveSessionMaxAgeMs(tokens);
 
   const options: CookieOptions = {
     httpOnly: true,
@@ -267,9 +284,12 @@ authRouter.post("/login/password", async (req, res, next) => {
 
     // 登录成功后生成本地 JWT 并落地 session
     const tokens = buildLocalAuthTokens(lookup.user);
-    const { token } = await sessionService.createSession(lookup.user, tokens);
+    const sessionMaxAgeMs = resolveSessionMaxAgeMs(tokens);
+    const sessionOptions =
+      typeof sessionMaxAgeMs === "number" ? { expiresInMs: sessionMaxAgeMs } : undefined;
+    const { token } = await sessionService.createSession(lookup.user, tokens, sessionOptions);
 
-    const cookieConfig = cookieOptions(true);
+    const cookieConfig = cookieOptions(true, tokens);
     res.cookie(config.session.cookieName, token, cookieConfig);
 
     const avatarUrl = lookup.user.avatarUrl ?? null;
@@ -284,7 +304,7 @@ authRouter.post("/login/password", async (req, res, next) => {
       },
       token,
       scope: null,
-      expiresIn: config.session.jwtExpiresIn,
+      expiresIn: sessionMaxAgeMs ?? config.session.jwtExpiresIn,
     });
   } catch (error) {
     next(error);
@@ -295,6 +315,9 @@ authRouter.post("/login/password", async (req, res, next) => {
 authRouter.post("/google/init", (req, res, next) => {
   try {
     const options = parseAuthorizationOptionsFromBody(req.body);
+    options.accessType = "offline";
+    options.prompt = "consent";
+
     const url = googleOAuthService.generateAuthorizationUrl(options);
     res.json({
       authorizationUrl: url,
@@ -325,14 +348,23 @@ authRouter.post("/google/callback", async (req, res, next) => {
 
     // 与 Google 交换授权码并同步频道、用户、会话
     const { tokens, profile } = await googleOAuthService.exchangeCodeForTokens(code);
+    if (!tokens.refreshToken) {
+      throw new AppError("Google 未返回 refresh_token，请使用 prompt=consent 重新授权", {
+        statusCode: 400,
+        code: "GOOGLE_REFRESH_TOKEN_REQUIRED",
+      });
+    }
     const channelSummaries = [];
     console.log("[auth/google/callback] access_token:", tokens.accessToken);
 
     const user = await userService.findOrCreateFromGoogleProfile(profile);
     await userChannelService.syncUserChannels(user.id, tokens.accessToken);
-    const { session, token } = await sessionService.createSession(user, tokens);
+    const sessionMaxAgeMs = resolveSessionMaxAgeMs(tokens);
+    const sessionOptions =
+      typeof sessionMaxAgeMs === "number" ? { expiresInMs: sessionMaxAgeMs } : undefined;
+    const { session, token } = await sessionService.createSession(user, tokens, sessionOptions);
 
-    const cookieConfig = cookieOptions(true);
+    const cookieConfig = cookieOptions(true, tokens);
     res.cookie(config.session.cookieName, token, cookieConfig);
 
     const avatarUrl = user.avatarUrl ?? profile.picture ?? null;
@@ -353,7 +385,7 @@ authRouter.post("/google/callback", async (req, res, next) => {
           : typeof req.query.state === "string"
             ? req.query.state
             : undefined,
-      expiresIn: config.session.jwtExpiresIn,
+      expiresIn: sessionMaxAgeMs ?? config.session.jwtExpiresIn,
     });
   } catch (error) {
     next(error);
