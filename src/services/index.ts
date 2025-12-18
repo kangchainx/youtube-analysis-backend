@@ -15,6 +15,8 @@ import { YouTubeSubscriptionService } from "./youtubeSubscriptionService";
 import { SubscribedChannelService } from "./subscribedChannelService";
 import { UserChannelService } from "./userChannelService";
 import { YouTubeChannelService } from "./youtubeChannelService";
+import { SubscriptionCardService } from "./subscriptionCardService";
+import { SubscriptionKeywordService } from "./subscriptionKeywordService";
 
 export const googleOAuthService = new GoogleOAuthService(config.googleOAuth);
 export const userService = new UserService(pool);
@@ -40,6 +42,8 @@ export const objectStorageService = new ObjectStorageService(
 );
 export const youtubeMetadataService = new YouTubeMetadataService(pool);
 export const subscribedChannelService = new SubscribedChannelService(pool);
+export const subscriptionCardService = new SubscriptionCardService(pool);
+export const subscriptionKeywordService = new SubscriptionKeywordService(pool);
 export const youtubeSubscriptionService = new YouTubeSubscriptionService(
   youtubeDataApi,
   youtubeMetadataService,
