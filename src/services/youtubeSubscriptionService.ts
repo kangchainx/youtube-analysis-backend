@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { AppError } from "../utils/appError";
 import { logger } from "../utils/logger";
+import { parseIso8601DurationToSeconds } from "../utils/isoDuration";
 import type { YouTubeResourceType } from "../models/youtube";
 import {
   YouTubeDataApi,
@@ -154,6 +155,16 @@ export class YouTubeSubscriptionService {
       lastUpdate: now,
     }, client);
 
+    await this.metadataService.upsertChannelStatisticsDailySnapshot({
+      channelId: channel.id,
+      snapshotDate: now.toISOString().slice(0, 10),
+      subscriberCount: channel.subscriberCount,
+      videoCount: channel.videoCount ?? null,
+      viewCount: channel.viewCount,
+      hiddenSubscriberCount: channel.hiddenSubscriberCount,
+      capturedAt: now,
+    }, client);
+
     await this.saveEtag("channel", channel.id, channel.etag, now, client);
 
     return {
@@ -183,6 +194,7 @@ export class YouTubeSubscriptionService {
 
     // 通过 etag 判断资源是否变化，未变更则跳过写库
     const now = new Date();
+    const snapshotDate = now.toISOString().slice(0, 10);
     const channelChanged = await this.hasResourceChanged("channel", channel.id, channel.etag, client);
     if (channelChanged) {
       await this.metadataService.upsertChannel({
@@ -210,6 +222,16 @@ export class YouTubeSubscriptionService {
     } else {
       logger.info("Channel etag unchanged, skipping metadata persistence", { channelId: channel.id });
     }
+
+    await this.metadataService.upsertChannelStatisticsDailySnapshot({
+      channelId: channel.id,
+      snapshotDate,
+      subscriberCount: channel.subscriberCount,
+      videoCount: channel.videoCount ?? null,
+      viewCount: channel.viewCount,
+      hiddenSubscriberCount: channel.hiddenSubscriberCount,
+      capturedAt: now,
+    }, client);
 
     const playlists = await this.youtubeDataApi.fetchPlaylistsByChannel(channel.id);
     logger.info("Fetched playlists for channel", {
@@ -314,47 +336,76 @@ export class YouTubeSubscriptionService {
     client: PoolClient,
   ): Promise<number> {
     let processed = 0;
+    const snapshotDate = timestamp.toISOString().slice(0, 10);
     for (const video of videos) {
+      const durationSeconds = parseIso8601DurationToSeconds(video.duration);
+      const isShort = durationSeconds !== null ? durationSeconds <= 180 : false;
+      const shortRuleVersion = "v1_180s";
+
       // etag 未变化时跳过写库，减少无效更新
       const videoChanged = await this.hasResourceChanged("video", video.id, video.etag, client);
-      if (!videoChanged) {
-        logger.debug("Video etag unchanged, skipping sync", { videoId: video.id });
-        continue;
+
+      if (videoChanged) {
+        await this.metadataService.upsertVideo({
+          id: video.id,
+          channelId: video.channelId,
+          playlistId: playlistMap.get(video.id) ?? null,
+          title: video.title,
+          description: video.description,
+          publishedAt: parseDate(video.publishedAt),
+          duration: video.duration,
+          durationSeconds,
+          isShort,
+          shortRuleVersion,
+          dimension: video.dimension,
+          definition: video.definition,
+          caption: video.caption,
+          licensedContent: video.licensedContent,
+          thumbnailUrl: video.thumbnailUrl,
+          tags: video.tags.length > 0 ? video.tags : null,
+          defaultLanguage: video.defaultLanguage,
+          defaultAudioLanguage: video.defaultAudioLanguage,
+          privacyStatus: video.privacyStatus,
+          lastSync: timestamp,
+        }, client);
+
+        await this.metadataService.upsertVideoStatistics({
+          videoId: video.id,
+          viewCount: video.statistics.viewCount,
+          likeCount: video.statistics.likeCount,
+          favoriteCount: video.statistics.favoriteCount,
+          commentCount: video.statistics.commentCount,
+          lastUpdate: timestamp,
+        }, client);
+
+        await this.syncTopCommentForVideo(video, timestamp, client);
+
+        await this.saveEtag("video", video.id, video.etag, timestamp, client);
+        processed += 1;
+      } else {
+        logger.debug("Video etag unchanged, skipping metadata persistence", { videoId: video.id });
+        await this.metadataService.updateVideoShortMetadata(
+          {
+            videoId: video.id,
+            duration: video.duration,
+            durationSeconds,
+            isShort,
+            shortRuleVersion,
+          },
+          client,
+        );
       }
 
-      await this.metadataService.upsertVideo({
-        id: video.id,
-        channelId: video.channelId,
-        playlistId: playlistMap.get(video.id) ?? null,
-        title: video.title,
-        description: video.description,
-        publishedAt: parseDate(video.publishedAt),
-        duration: video.duration,
-        dimension: video.dimension,
-        definition: video.definition,
-        caption: video.caption,
-        licensedContent: video.licensedContent,
-        thumbnailUrl: video.thumbnailUrl,
-        tags: video.tags.length > 0 ? video.tags : null,
-        defaultLanguage: video.defaultLanguage,
-        defaultAudioLanguage: video.defaultAudioLanguage,
-        privacyStatus: video.privacyStatus,
-        lastSync: timestamp,
-      }, client);
-
-      await this.metadataService.upsertVideoStatistics({
+      await this.metadataService.upsertVideoStatisticsDailySnapshot({
         videoId: video.id,
+        channelId: video.channelId,
+        snapshotDate,
         viewCount: video.statistics.viewCount,
         likeCount: video.statistics.likeCount,
         favoriteCount: video.statistics.favoriteCount,
         commentCount: video.statistics.commentCount,
-        lastUpdate: timestamp,
+        capturedAt: timestamp,
       }, client);
-
-      await this.syncTopCommentForVideo(video, timestamp, client);
-
-      await this.saveEtag("video", video.id, video.etag, timestamp, client);
-      processed += 1;
     }
 
     return processed;
