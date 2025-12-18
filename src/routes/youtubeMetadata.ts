@@ -2,6 +2,8 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/authentication";
 import {
   subscribedChannelService,
+  subscriptionCardService,
+  subscriptionKeywordService,
   youtubeMetadataService,
   youtubeSubscriptionService,
 } from "../services";
@@ -326,6 +328,54 @@ youtubeMetadataRouter.get("/subscriptions", async (req, res, next) => {
   }
 });
 
+// GET /youtube/subscriptions/cards：返回订阅频道的卡片指标 Top1（涨粉/流量/勤奋）
+youtubeMetadataRouter.get("/subscriptions/cards", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("需要先登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const days = parseWindowDays(req.query.days);
+    const cards = await subscriptionCardService.getTop1Cards(currentUser.id, { days });
+    res.json({ data: cards });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /youtube/subscriptions/title-keywords：订阅频道标题高频关键词（近 N 天发布 + 热度 Top 视频）
+youtubeMetadataRouter.get("/subscriptions/title-keywords", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("需要先登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const days = parseWindowDays(req.query.days);
+    const limit = parseKeywordLimit(req.query.limit);
+    const candidateLimit = parseCandidateLimit(req.query.candidate_limit ?? req.query.candidateLimit);
+    const likeWeight = parseLikeWeight(req.query.like_weight ?? req.query.likeWeight);
+
+    const result = await subscriptionKeywordService.getTitleKeywords(currentUser.id, {
+      days,
+      limit,
+      candidateLimit,
+      likeWeight,
+    });
+
+    res.json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /youtube/subscription-status：查询当前用户是否已订阅指定频道
 youtubeMetadataRouter.get("/subscription-status", async (req, res, next) => {
   try {
@@ -351,6 +401,91 @@ youtubeMetadataRouter.get("/subscription-status", async (req, res, next) => {
     );
 
     res.json({ data: { subscribed } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /youtube/channels/:channelId/statistics/daily：按天返回订阅频道的趋势数据（用于折线图）
+youtubeMetadataRouter.get("/channels/:channelId/statistics/daily", async (req, res, next) => {
+  try {
+    const currentUser = req.currentUser;
+    if (!currentUser) {
+      throw new AppError("需要先登录", {
+        statusCode: 401,
+        code: "AUTH_REQUIRED",
+      });
+    }
+
+    const channelId = req.params.channelId?.trim();
+    if (!channelId) {
+      throw new AppError("频道 ID 必须提供", {
+        statusCode: 400,
+        code: "CHANNEL_ID_REQUIRED",
+      });
+    }
+
+    const subscribed = await subscribedChannelService.isUserSubscribedToChannel(
+      currentUser.id,
+      channelId,
+    );
+    if (!subscribed) {
+      throw new AppError("需要先订阅频道后再查看趋势数据", {
+        statusCode: 403,
+        code: "SUBSCRIPTION_REQUIRED",
+      });
+    }
+
+    const metric = parseTrendMetric(req.query.metric ?? req.query.type);
+    const days = parseWindowDays(req.query.days);
+
+    const end = new Date();
+    const endDate = end.toISOString().slice(0, 10);
+    const startDate = toUtcDateString(shiftUtcDays(end, -(days - 1)));
+
+    const daily = await youtubeMetadataService.listChannelStatisticsDaily(channelId, {
+      startDate,
+      endDate,
+    });
+
+    const valueByDate = new Map<string, string>();
+    for (const point of daily) {
+      if (metric === "viewCount") {
+        valueByDate.set(point.snapshotDate, point.viewCount);
+      } else if (metric === "subscriberCount") {
+        valueByDate.set(point.snapshotDate, point.subscriberCount);
+      } else {
+        valueByDate.set(point.snapshotDate, String(point.videoCount));
+      }
+    }
+
+    const dates: string[] = [];
+    const points: Array<{ date: string; value: string | null }> = [];
+    let cursor = new Date(`${startDate}T00:00:00.000Z`);
+    const endCursor = new Date(`${endDate}T00:00:00.000Z`);
+    let lastValue: string | null = null;
+
+    while (cursor.getTime() <= endCursor.getTime()) {
+      const date = toUtcDateString(cursor);
+      dates.push(date);
+      const raw = valueByDate.get(date);
+      if (raw !== undefined) {
+        lastValue = raw;
+      }
+      points.push({ date, value: lastValue });
+      cursor = shiftUtcDays(cursor, 1);
+    }
+
+    res.json({
+      data: {
+        channelId,
+        metric,
+        windowDays: days,
+        startDate,
+        endDate,
+        points,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -418,4 +553,113 @@ function normalizeQueryValue(value: unknown): string | undefined {
   }
 
   return String(value);
+}
+
+function parseWindowDays(rawDays: unknown): number {
+  const value = normalizeQueryValue(rawDays);
+  if (value === undefined) {
+    return 30;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError("days 必须是正整数", {
+      statusCode: 400,
+      code: "INVALID_DAYS",
+    });
+  }
+
+  return Math.min(parsed, 3650);
+}
+
+type TrendMetric = "viewCount" | "subscriberCount" | "videoCount";
+
+function parseTrendMetric(rawMetric: unknown): TrendMetric {
+  const value = normalizeQueryValue(rawMetric);
+  const normalized = value?.trim();
+  if (!normalized) {
+    return "viewCount";
+  }
+
+  switch (normalized) {
+    case "viewCount":
+    case "view_count":
+    case "views":
+      return "viewCount";
+    case "subscriberCount":
+    case "subscriber_count":
+    case "subscribers":
+      return "subscriberCount";
+    case "videoCount":
+    case "video_count":
+    case "videos":
+      return "videoCount";
+    default:
+      throw new AppError("metric 参数不合法", {
+        statusCode: 400,
+        code: "INVALID_METRIC",
+        details: { allowed: ["viewCount", "subscriberCount", "videoCount"] },
+      });
+  }
+}
+
+function toUtcDateString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function shiftUtcDays(date: Date, deltaDays: number): Date {
+  const copy = new Date(date);
+  copy.setUTCDate(copy.getUTCDate() + deltaDays);
+  return copy;
+}
+
+function parseKeywordLimit(rawLimit: unknown): number {
+  const value = normalizeQueryValue(rawLimit);
+  if (value === undefined) {
+    return 10;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError("limit 必须是正整数", {
+      statusCode: 400,
+      code: "INVALID_LIMIT",
+    });
+  }
+
+  return Math.min(parsed, 50);
+}
+
+function parseCandidateLimit(rawLimit: unknown): number {
+  const value = normalizeQueryValue(rawLimit);
+  if (value === undefined) {
+    return 500;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError("candidate_limit 必须是正整数", {
+      statusCode: 400,
+      code: "INVALID_CANDIDATE_LIMIT",
+    });
+  }
+
+  return Math.min(Math.max(parsed, 50), 5000);
+}
+
+function parseLikeWeight(rawWeight: unknown): number {
+  const value = normalizeQueryValue(rawWeight);
+  if (value === undefined) {
+    return 50;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new AppError("like_weight 必须是 >= 0 的整数", {
+      statusCode: 400,
+      code: "INVALID_LIKE_WEIGHT",
+    });
+  }
+
+  return Math.min(parsed, 1000);
 }
