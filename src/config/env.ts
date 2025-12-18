@@ -318,7 +318,9 @@ export function loadConfig(): AppConfig {
     database: loadDatabaseConfig(),
     youtube: loadYouTubeConfig(),
     spotlight: loadSpotlightConfig(),
+    // Cited https://github.com/kangchainx/AI-Video-Transcriber
     videoTranscription: loadVideoTranscriptionConfig(),
+    // Cited https://github.com/kangchainx/video-transcriber
     videoTranslate: loadVideoTranslateConfig(),
     objectStorage: loadObjectStorageConfig(),
     logging: loadLoggingConfig(),
