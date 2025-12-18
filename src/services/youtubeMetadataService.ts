@@ -32,6 +32,13 @@ interface ChannelWithStatsRow extends ChannelRow {
   statistics_last_update: Date | null;
 }
 
+interface ChannelDailyStatisticsRow {
+  snapshot_date: string;
+  subscriber_count: string;
+  video_count: number;
+  view_count: string;
+}
+
 interface PlaylistRow {
   id: string;
   channel_id: string;
@@ -51,6 +58,9 @@ interface VideoRow {
   description: string | null;
   published_at: Date | null;
   duration: string | null;
+  duration_seconds: number | string | null;
+  is_short: boolean | null;
+  short_rule_version: string | null;
   dimension: string | null;
   definition: string | null;
   caption: boolean | null;
@@ -129,6 +139,16 @@ export interface UpsertChannelStatisticsInput {
   lastUpdate?: Date | null;
 }
 
+export interface UpsertChannelStatisticsDailySnapshotInput {
+  channelId: string;
+  snapshotDate: string; // YYYY-MM-DD (UTC)
+  subscriberCount?: string | null;
+  videoCount?: number | null;
+  viewCount?: string | null;
+  hiddenSubscriberCount?: boolean;
+  capturedAt?: Date | null;
+}
+
 export interface UpsertPlaylistInput {
   id: string;
   channelId: string;
@@ -148,6 +168,9 @@ export interface UpsertVideoInput {
   description?: string | null;
   publishedAt?: Date | null;
   duration?: string | null;
+  durationSeconds?: number | null;
+  isShort?: boolean | null;
+  shortRuleVersion?: string | null;
   dimension?: string | null;
   definition?: string | null;
   caption?: boolean | null;
@@ -160,6 +183,14 @@ export interface UpsertVideoInput {
   lastSync?: Date | null;
 }
 
+export interface UpdateVideoShortMetadataInput {
+  videoId: string;
+  duration?: string | null;
+  durationSeconds?: number | null;
+  isShort?: boolean | null;
+  shortRuleVersion?: string | null;
+}
+
 export interface UpsertVideoStatisticsInput {
   videoId: string;
   viewCount?: string | null;
@@ -167,6 +198,17 @@ export interface UpsertVideoStatisticsInput {
   favoriteCount?: string | null;
   commentCount?: string | null;
   lastUpdate?: Date | null;
+}
+
+export interface UpsertVideoStatisticsDailySnapshotInput {
+  videoId: string;
+  channelId: string;
+  snapshotDate: string; // YYYY-MM-DD (UTC)
+  viewCount?: string | null;
+  likeCount?: string | null;
+  favoriteCount?: string | null;
+  commentCount?: string | null;
+  capturedAt?: Date | null;
 }
 
 export interface UpsertVideoTopCommentInput {
@@ -204,6 +246,19 @@ const MAX_VIDEO_LIMIT = 100;
 
 function toIso(date: Date | null | undefined): string | null {
   return date ? date.toISOString() : null;
+}
+
+function toUtcDateString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function toPgBigInt(value: string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "0";
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "0";
 }
 
 function mapChannelRow(row: ChannelRow): YouTubeChannel {
@@ -257,6 +312,14 @@ function mapPlaylistRow(row: PlaylistRow): YouTubePlaylist {
 }
 
 function mapVideoRow(row: VideoRow): YouTubeVideo {
+  const durationSecondsRaw = row.duration_seconds;
+  const durationSeconds =
+    typeof durationSecondsRaw === "number"
+      ? durationSecondsRaw
+      : typeof durationSecondsRaw === "string"
+        ? Number.parseInt(durationSecondsRaw, 10)
+        : null;
+
   return {
     id: row.id,
     channelId: row.channel_id,
@@ -265,6 +328,9 @@ function mapVideoRow(row: VideoRow): YouTubeVideo {
     description: row.description,
     publishedAt: toIso(row.published_at),
     duration: row.duration,
+    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+    isShort: row.is_short ?? null,
+    shortRuleVersion: row.short_rule_version ?? null,
     dimension: row.dimension,
     definition: row.definition,
     caption: row.caption,
@@ -575,6 +641,75 @@ export class YouTubeMetadataService {
     };
   }
 
+  async upsertChannelStatisticsDailySnapshot(
+    input: UpsertChannelStatisticsDailySnapshotInput,
+    client?: PoolClient,
+  ): Promise<void> {
+    const executor = client ?? this.pool;
+    await executor.query(
+      `INSERT INTO youtube_channel_statistics_daily (
+         channel_id,
+         snapshot_date,
+         subscriber_count,
+         video_count,
+         view_count,
+         hidden_subscriber_count,
+         captured_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (channel_id, snapshot_date)
+       DO UPDATE SET
+         subscriber_count = EXCLUDED.subscriber_count,
+         video_count = EXCLUDED.video_count,
+         view_count = EXCLUDED.view_count,
+         hidden_subscriber_count = EXCLUDED.hidden_subscriber_count,
+         captured_at = EXCLUDED.captured_at`,
+      [
+        input.channelId,
+        input.snapshotDate,
+        toPgBigInt(input.subscriberCount),
+        input.videoCount ?? 0,
+        toPgBigInt(input.viewCount),
+        input.hiddenSubscriberCount ?? false,
+        input.capturedAt ?? new Date(),
+      ],
+    );
+  }
+
+  async listChannelStatisticsDaily(
+    channelId: string,
+    range: { startDate: string; endDate: string },
+    client?: PoolClient,
+  ): Promise<
+    Array<{
+      snapshotDate: string;
+      subscriberCount: string;
+      viewCount: string;
+      videoCount: number;
+    }>
+  > {
+    const executor = client ?? this.pool;
+    const { rows } = await executor.query<ChannelDailyStatisticsRow>(
+      `SELECT snapshot_date::text AS snapshot_date,
+              subscriber_count::text AS subscriber_count,
+              video_count,
+              view_count::text AS view_count
+       FROM youtube_channel_statistics_daily
+       WHERE channel_id = $1
+         AND snapshot_date::date >= $2::date
+         AND snapshot_date::date <= $3::date
+       ORDER BY snapshot_date::date ASC`,
+      [channelId, range.startDate, range.endDate],
+    );
+
+    return rows.map((row) => ({
+      snapshotDate: row.snapshot_date,
+      subscriberCount: row.subscriber_count,
+      viewCount: row.view_count,
+      videoCount: row.video_count,
+    }));
+  }
+
   async listPlaylistsByChannel(channelId: string): Promise<YouTubePlaylist[]> {
     const { rows } = await this.pool.query<PlaylistRow>(
       `SELECT id,
@@ -701,6 +836,9 @@ export class YouTubeMetadataService {
               v.description,
               v.published_at,
               v.duration,
+              v.duration_seconds,
+              v.is_short,
+              v.short_rule_version,
               v.dimension,
               v.definition,
               v.caption,
@@ -766,6 +904,9 @@ export class YouTubeMetadataService {
               v.description,
               v.published_at,
               v.duration,
+              v.duration_seconds,
+              v.is_short,
+              v.short_rule_version,
               v.dimension,
               v.definition,
               v.caption,
@@ -803,6 +944,9 @@ export class YouTubeMetadataService {
               v.description,
               v.published_at,
               v.duration,
+              v.duration_seconds,
+              v.is_short,
+              v.short_rule_version,
               v.dimension,
               v.definition,
               v.caption,
@@ -839,6 +983,9 @@ export class YouTubeMetadataService {
          description,
          published_at,
          duration,
+         duration_seconds,
+         is_short,
+         short_rule_version,
          dimension,
          definition,
          caption,
@@ -850,7 +997,7 @@ export class YouTubeMetadataService {
          privacy_status,
          last_sync
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        ON CONFLICT (id)
        DO UPDATE SET
          channel_id = EXCLUDED.channel_id,
@@ -859,6 +1006,9 @@ export class YouTubeMetadataService {
          description = EXCLUDED.description,
          published_at = EXCLUDED.published_at,
          duration = EXCLUDED.duration,
+         duration_seconds = EXCLUDED.duration_seconds,
+         is_short = EXCLUDED.is_short,
+         short_rule_version = EXCLUDED.short_rule_version,
          dimension = EXCLUDED.dimension,
          definition = EXCLUDED.definition,
          caption = EXCLUDED.caption,
@@ -876,6 +1026,9 @@ export class YouTubeMetadataService {
                  description,
                  published_at,
                  duration,
+                 duration_seconds,
+                 is_short,
+                 short_rule_version,
                  dimension,
                  definition,
                  caption,
@@ -894,6 +1047,9 @@ export class YouTubeMetadataService {
         input.description ?? null,
         input.publishedAt ?? null,
         input.duration ?? null,
+        input.durationSeconds ?? null,
+        input.isShort ?? null,
+        input.shortRuleVersion ?? null,
         input.dimension ?? null,
         input.definition ?? null,
         input.caption ?? null,
@@ -913,6 +1069,36 @@ export class YouTubeMetadataService {
     }
 
     return mapVideoRow(row);
+  }
+
+  async updateVideoShortMetadata(
+    input: UpdateVideoShortMetadataInput,
+    client?: PoolClient,
+  ): Promise<number> {
+    const executor = client ?? this.pool;
+    const result = await executor.query(
+      `UPDATE youtube_videos
+       SET duration = $2,
+           duration_seconds = $3,
+           is_short = $4,
+           short_rule_version = $5
+       WHERE id = $1
+         AND (
+           duration IS DISTINCT FROM $2
+           OR duration_seconds IS DISTINCT FROM $3
+           OR is_short IS DISTINCT FROM $4
+           OR short_rule_version IS DISTINCT FROM $5
+         )`,
+      [
+        input.videoId,
+        input.duration ?? null,
+        input.durationSeconds ?? null,
+        input.isShort ?? null,
+        input.shortRuleVersion ?? null,
+      ],
+    );
+
+    return result.rowCount ?? 0;
   }
 
   async upsertVideoStatistics(
@@ -937,18 +1123,21 @@ export class YouTubeMetadataService {
          favorite_count = EXCLUDED.favorite_count,
          comment_count = EXCLUDED.comment_count,
          last_update = EXCLUDED.last_update
-       RETURNING video_id AS id,
-                 NULL::text AS channel_id,
-                 NULL::text AS playlist_id,
-                 NULL::text AS title,
-                 NULL::text AS description,
-                 NULL::timestamptz AS published_at,
-                 NULL::text AS duration,
-                 NULL::text AS dimension,
-                 NULL::text AS definition,
-                 NULL::boolean AS caption,
-                 NULL::boolean AS licensed_content,
-                 NULL::text AS thumbnail_url,
+	       RETURNING video_id AS id,
+	                 NULL::text AS channel_id,
+	                 NULL::text AS playlist_id,
+	                 NULL::text AS title,
+	                 NULL::text AS description,
+	                 NULL::timestamptz AS published_at,
+	                 NULL::text AS duration,
+	                 NULL::int AS duration_seconds,
+	                 NULL::boolean AS is_short,
+	                 NULL::text AS short_rule_version,
+	                 NULL::text AS dimension,
+	                 NULL::text AS definition,
+	                 NULL::boolean AS caption,
+	                 NULL::boolean AS licensed_content,
+	                 NULL::text AS thumbnail_url,
                  NULL::text[] AS tags,
                  NULL::text AS default_language,
                  NULL::text AS default_audio_language,
@@ -982,6 +1171,44 @@ export class YouTubeMetadataService {
       commentCount: input.commentCount ?? null,
       lastUpdate: toIso(input.lastUpdate ?? null),
     };
+  }
+
+  async upsertVideoStatisticsDailySnapshot(
+    input: UpsertVideoStatisticsDailySnapshotInput,
+    client?: PoolClient,
+  ): Promise<void> {
+    const executor = client ?? this.pool;
+    await executor.query(
+      `INSERT INTO youtube_video_statistics_daily (
+         video_id,
+         channel_id,
+         snapshot_date,
+         view_count,
+         like_count,
+         favorite_count,
+         comment_count,
+         captured_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (video_id, snapshot_date)
+       DO UPDATE SET
+         channel_id = EXCLUDED.channel_id,
+         view_count = EXCLUDED.view_count,
+         like_count = EXCLUDED.like_count,
+         favorite_count = EXCLUDED.favorite_count,
+         comment_count = EXCLUDED.comment_count,
+         captured_at = EXCLUDED.captured_at`,
+      [
+        input.videoId,
+        input.channelId,
+        input.snapshotDate,
+        toPgBigInt(input.viewCount),
+        toPgBigInt(input.likeCount),
+        toPgBigInt(input.favoriteCount),
+        toPgBigInt(input.commentCount),
+        input.capturedAt ?? new Date(),
+      ],
+    );
   }
 
   async upsertVideoTopComment(

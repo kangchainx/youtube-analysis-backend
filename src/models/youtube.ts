@@ -44,6 +44,9 @@ export interface YouTubeVideo {
   description: string | null;
   publishedAt: string | null;
   duration: string | null;
+  durationSeconds: number | null;
+  isShort: boolean | null;
+  shortRuleVersion: string | null;
   dimension: string | null;
   definition: string | null;
   caption: boolean | null;
