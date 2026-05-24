@@ -1,6 +1,6 @@
 # YouTube Analysis Backend
 
-基于 Node.js + TypeScript 的后端服务，为 YouTube 数据分析与视频转写应用提供 API。后端内置用户认证、通知推送、对象存储、数据库持久化，并通过签名鉴权安全地代理 Python fast‑whisper 转写服务。
+基于 Node.js + TypeScript 的后端，为 YouTube 数据分析与视频转写应用提供 API。后端内置用户认证、通知推送、对象存储、数据库持久化，并通过签名鉴权安全地代理 Python fast‑whisper 转写服务。
 
 > 如果这个项目对你有帮助，请点亮一个 ⭐️，你的支持是我持续改进的动力。
 
