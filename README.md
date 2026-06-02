@@ -88,7 +88,3 @@ src/
 - 所有业务接口默认前缀 `/api`，需登录的接口已统一挂载 `requireAuth`。
 - 视频转写调用 Python 服务时会自动附加签名头（`X-Auth-UserId`、`X-Auth-Timestamp`、`X-Auth-Nonce`、`X-Auth-Sign`），请确保 Python 端使用相同密钥与秒级时间戳校验。
 - 通知：转写任务完成/失败会自动写入通知表，并可通过 `GET /notifications` 或 SSE 获取。
-
----
-
-如果你觉得这个项目有价值，请给个 ⭐️。也欢迎 Issue/PR，一起完善！
